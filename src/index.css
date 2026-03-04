@@ -1,0 +1,33 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Google Maps Autocomplete Styling */
+.pac-container {
+  @apply !bg-white dark:!bg-slate-800 !border !border-black/5 dark:!border-white/10 !rounded-2xl !shadow-2xl !mt-2 !font-sans;
+  z-index: 9999 !important;
+}
+
+.pac-item {
+  @apply !border-black/5 dark:!border-white/5 !p-3 !flex !items-center !cursor-pointer hover:!bg-gray-50 dark:hover:!bg-white/5 !transition-colors !text-gray-600 dark:!text-slate-200;
+}
+
+.pac-item-query {
+  @apply !text-gray-900 dark:!text-white !font-bold !text-sm;
+}
+
+.pac-matched {
+  @apply !text-[#D4820A];
+}
+
+.pac-icon {
+  @apply !opacity-50 dark:!invert;
+}
+
+.pac-item:first-child {
+  @apply !border-t-0;
+}
+
+.pac-item:last-child {
+  @apply !rounded-b-2xl;
+}

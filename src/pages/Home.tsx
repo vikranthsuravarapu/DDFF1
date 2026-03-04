@@ -1,0 +1,136 @@
+import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
+import { ArrowRight, Star, ShieldCheck, Truck, Clock } from 'lucide-react';
+import { motion } from 'motion/react';
+import ProductCard from '../components/ProductCard';
+
+export default function Home() {
+  const [featuredProducts, setFeaturedProducts] = useState([]);
+  const [categories, setCategories] = useState([]);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [productsRes, categoriesRes] = await Promise.all([
+          fetch('/api/products?featured=1'),
+          fetch('/api/categories')
+        ]);
+        const [productsData, categoriesData] = await Promise.all([
+          productsRes.json(),
+          categoriesRes.json()
+        ]);
+        setFeaturedProducts(Array.isArray(productsData) ? productsData : []);
+        setCategories(Array.isArray(categoriesData) ? categoriesData : []);
+      } catch (error) {
+        console.error('Error fetching home data:', error);
+      }
+    };
+    fetchData();
+  }, []);
+
+  return (
+    <div className="space-y-16">
+      {/* Hero Section */}
+      <section className="relative h-[500px] rounded-3xl overflow-hidden bg-gradient-to-br from-[#3B2A1A] to-[#4A3624] text-white flex items-center">
+        <div className="absolute inset-0 opacity-20">
+          <img 
+            src="https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=1920&q=80" 
+            className="w-full h-full object-cover"
+            alt="Farm background"
+            referrerPolicy="no-referrer"
+          />
+        </div>
+        <div className="relative z-10 px-8 md:px-16 max-w-2xl space-y-6">
+          <motion.h1 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="text-5xl md:text-7xl font-bold leading-tight"
+          >
+            Direct from <span className="text-[#D4820A]">Farmer</span>
+          </motion.h1>
+          <p className="text-lg text-white/80">
+            DDFF brings you fresh honey, chillies, and pulses harvested by hand and delivered straight from the farm to your door.
+          </p>
+          <div className="flex space-x-4">
+            <Link to="/products" className="bg-[#D4820A] text-white px-8 py-4 rounded-full font-bold flex items-center space-x-2 hover:bg-[#B87008] transition-all">
+              <span>Shop Now</span>
+              <ArrowRight className="w-5 h-5" />
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      {/* Categories */}
+      <section className="space-y-8">
+        <div className="flex justify-between items-end">
+          <div>
+            <h2 className="text-3xl font-bold dark:text-white">Shop by Category</h2>
+            <p className="text-gray-600 dark:text-slate-400">Explore our village fresh collections</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+          {categories.map((cat: any) => (
+            <Link 
+              key={cat.id} 
+              to={`/products?category=${cat.slug}`}
+              className="bg-white dark:bg-slate-900 p-6 rounded-2xl text-center hover:shadow-xl hover:scale-[1.05] hover:border-[#D4820A]/20 transition-all border border-black/5 dark:border-white/10 group"
+            >
+              <span className="text-4xl block mb-2 group-hover:scale-110 transition-transform duration-300">{cat.emoji}</span>
+              <span className="font-bold text-gray-900 dark:text-white group-hover:text-[#D4820A] transition-colors">{cat.name}</span>
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      {/* Featured Products */}
+      <section className="space-y-8">
+        <div className="flex justify-between items-end">
+          <div>
+            <h2 className="text-3xl font-bold dark:text-white">Featured Products</h2>
+            <p className="text-gray-600 dark:text-slate-400">Handpicked for you this week</p>
+          </div>
+          <Link to="/products" className="text-[#D4820A] font-bold flex items-center space-x-1">
+            <span>View All</span>
+            <ArrowRight className="w-4 h-4" />
+          </Link>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          {featuredProducts.map((product: any) => (
+            <ProductCard key={product.id} product={product} />
+          ))}
+        </div>
+      </section>
+
+      {/* Features */}
+      <section className="grid grid-cols-1 md:grid-cols-3 gap-8 py-12 border-y border-black/5 dark:border-white/5">
+        <div className="flex items-start space-x-4">
+          <div className="bg-[#D4820A]/10 p-3 rounded-2xl text-[#D4820A]">
+            <ShieldCheck className="w-8 h-8" />
+          </div>
+          <div>
+            <h3 className="font-bold text-xl dark:text-white">100% Organic</h3>
+            <p className="text-gray-600 dark:text-slate-400">No pesticides or chemicals used in our farming process.</p>
+          </div>
+        </div>
+        <div className="flex items-start space-x-4">
+          <div className="bg-[#D4820A]/10 p-3 rounded-2xl text-[#D4820A]">
+            <Truck className="w-8 h-8" />
+          </div>
+          <div>
+            <h3 className="font-bold text-xl dark:text-white">Fast Delivery</h3>,TargetContent:
+            <p className="text-gray-600 dark:text-slate-400">Delivered within 2-3 days in Guntur and Vijayawada.</p>
+          </div>
+        </div>
+        <div className="flex items-start space-x-4">
+          <div className="bg-[#D4820A]/10 p-3 rounded-2xl text-[#D4820A]">
+            <Clock className="w-8 h-8" />
+          </div>
+          <div>
+            <h3 className="font-bold text-xl dark:text-white">Fresh Stock</h3>
+            <p className="text-gray-600 dark:text-slate-400">Harvested weekly to ensure maximum freshness and taste.</p>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}

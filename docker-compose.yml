@@ -3,12 +3,21 @@ services:
     build: .
     ports:
       - "3000:3000"
+    # These variables are picked up from your .env file
     environment:
       - NODE_ENV=production
-      - JWT_SECRET=your_secure_jwt_secret_here
-      - GOOGLE_CLIENT_ID=your_google_client_id
-      - GOOGLE_CLIENT_SECRET=your_google_client_secret
-      - APP_URL=http://localhost:3000
-    volumes:
-      - ./grama_ruchulu.db:/app/grama_ruchulu.db
+      - JWT_SECRET=${JWT_SECRET}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - APP_URL=${APP_URL:-http://localhost:3000}
+      - DATABASE_URL=${DATABASE_URL}
+      - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID}
+      - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET}
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
+      - TWILIO_WHATSAPP_FROM=${TWILIO_WHATSAPP_FROM}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - ADMIN_PHONE=${ADMIN_PHONE}
+      - VITE_GOOGLE_MAPS_API_KEY=${VITE_GOOGLE_MAPS_API_KEY}
+      - VITE_SUPPORT_WHATSAPP=${VITE_SUPPORT_WHATSAPP}
     restart: always

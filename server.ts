@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
+import helmet from 'helmet';
 import cors from 'cors';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
@@ -10,6 +11,7 @@ import multer from 'multer';
 import PDFDocument from 'pdfkit';
 import path from 'path';
 import fs from 'fs';
+import rateLimit from 'express-rate-limit';
 import { createServer as createViteServer } from 'vite';
 import { pool as db, initDb } from './src/db';
 import { sendWhatsAppNotification } from './src/services/notificationService';
@@ -20,12 +22,14 @@ const cleanEnvVar = (val: string | undefined) => {
 };
 
 const app = express();
+app.use(helmet({ contentSecurityPolicy: false }));
 const PORT = 3000;
 
-// Ensure JWT_SECRET is consistent and loaded from env if available
-const JWT_SECRET = (process.env.JWT_SECRET && process.env.JWT_SECRET !== 'undefined') 
-  ? cleanEnvVar(process.env.JWT_SECRET) 
-  : 'grama_ruchulu_secret_key_2025';
+const JWT_SECRET = cleanEnvVar(process.env.JWT_SECRET);
+if (!JWT_SECRET) {
+  console.error('FATAL: JWT_SECRET environment variable is not set. Exiting.');
+  process.exit(1);
+}
 
 if (!process.env.DATABASE_URL) {
   console.warn('[DB] DATABASE_URL is not set. Database connection will likely fail.');
@@ -58,9 +62,24 @@ const razorpay = new Razorpay({
 
 console.log(`[Auth] JWT Secret initialized (using ${process.env.JWT_SECRET ? 'environment variable' : 'fallback string'})`);
 
-app.use(cors());
+app.use(cors({
+  origin: process.env.NODE_ENV === 'production'
+    ? [cleanEnvVar(process.env.APP_URL)].filter(Boolean)
+    : true,
+  credentials: true
+}));
 app.use(express.json());
 app.use('/uploads', express.static('uploads'));
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // 10 attempts per window
+  message: { error: 'Too many attempts. Please try again after 15 minutes.' }
+});
+
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/register', authLimiter);
+app.use('/api/auth/forgot-password', authLimiter);
 
 // Ensure uploads directory exists
 const uploadDir = 'uploads/proofs';
@@ -2401,6 +2420,9 @@ async function startServer() {
   } else {
     console.log('[Server] Serving production build...');
     app.use(express.static('dist'));
+    app.get('*', (req, res) => {
+      res.sendFile(path.resolve('dist', 'index.html'));
+    });
   }
 
   app.listen(PORT, '0.0.0.0', () => {

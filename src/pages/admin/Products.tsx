@@ -1,13 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, Package, MapPin, X, Save, Sparkles, Loader2 } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import { Plus, Edit, Trash2, Package, MapPin, X, Save, Sparkles, Loader2, Smile } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCart } from '../../contexts/CartContext';
 import { generateProductDescription, analyzeAdminData } from '../../services/geminiService';
 import ReactMarkdown from 'react-markdown';
+import EmojiPicker, { Theme } from 'emoji-picker-react';
 
 export default function AdminProducts() {
   const { token } = useAuth();
   const { setNotification } = useCart();
+  const [searchParams] = useSearchParams();
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [farmers, setFarmers] = useState([]);
@@ -15,7 +18,7 @@ export default function AdminProducts() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
-  const [newCategoryEmoji, setNewCategoryEmoji] = useState('📦');
+  const [newCategoryEmoji, setNewCategoryEmoji] = useState('🌾');
   const [editingProduct, setEditingProduct] = useState<any>(null);
   const [formData, setFormData] = useState({
     name: '',
@@ -29,7 +32,9 @@ export default function AdminProducts() {
     farmer_id: '',
     image_url: '',
     is_featured: false,
-    is_best_seller: false
+    is_best_seller: false,
+    sale_price: '',
+    sale_ends_at: ''
   });
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
@@ -43,6 +48,17 @@ export default function AdminProducts() {
   const [bulkStockValue, setBulkStockValue] = useState('');
   const [isBulkUpdating, setIsBulkUpdating] = useState(false);
   const [isAddingCategory, setIsAddingCategory] = useState(false);
+  const [editingCategory, setEditingCategory] = useState<any>(null);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [isUpdatingCategory, setIsUpdatingCategory] = useState(false);
+  const [filterLowStock, setFilterLowStock] = useState(searchParams.get('filter') === 'low-stock');
+  const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
+
+  useEffect(() => {
+    if (searchParams.get('filter') === 'low-stock') {
+      setFilterLowStock(true);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     fetchData();
@@ -73,6 +89,10 @@ export default function AdminProducts() {
 
   const fetchData = async () => {
     try {
+      console.log('[AdminProducts] Fetching data...');
+      // Only show loading skeleton on initial load
+      if (products.length === 0) setLoading(true);
+      
       const [prodRes, catRes, farmRes] = await Promise.all([
         fetch(`/api/admin/products?t=${Date.now()}`, {
           headers: { 'Authorization': `Bearer ${token}` }
@@ -82,16 +102,30 @@ export default function AdminProducts() {
           headers: { 'Authorization': `Bearer ${token}` }
         })
       ]);
+      
+      if (!prodRes.ok || !catRes.ok || !farmRes.ok) {
+        throw new Error(`Fetch failed: ${prodRes.status} ${catRes.status} ${farmRes.status}`);
+      }
+
       const [prodData, catData, farmData] = await Promise.all([
         prodRes.json(),
         catRes.json(),
         farmRes.json()
       ]);
-      setProducts(prodData);
-      setCategories(catData);
-      setFarmers(farmData);
+      
+      console.log(`[AdminProducts] Fetched ${Array.isArray(prodData) ? prodData.length : 0} products, ${Array.isArray(catData) ? catData.length : 0} categories, ${Array.isArray(farmData) ? farmData.length : 0} farmers`);
+      
+      if (Array.isArray(prodData)) setProducts(prodData);
+      else setProducts([]);
+
+      if (Array.isArray(catData)) setCategories(catData);
+      else setCategories([]);
+
+      if (Array.isArray(farmData)) setFarmers(farmData);
+      else setFarmers([]);
     } catch (err) {
-      console.error('Fetch error:', err);
+      console.error('[AdminProducts] Fetch error:', err);
+      setNotification('Failed to fetch data. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -130,7 +164,9 @@ export default function AdminProducts() {
           original_price: formData.original_price ? parseFloat(formData.original_price) : null,
           stock: parseInt(formData.stock),
           category_id: parseInt(formData.category_id),
-          farmer_id: parseInt(formData.farmer_id)
+          farmer_id: parseInt(formData.farmer_id),
+          sale_price: formData.sale_price ? parseFloat(formData.sale_price) : null,
+          sale_ends_at: formData.sale_ends_at || null
         })
       });
 
@@ -140,7 +176,7 @@ export default function AdminProducts() {
         setFormData({
           name: '', description: '', price: '', original_price: '', unit: '',
           stock: '', origin: '', category_id: '', farmer_id: '', image_url: '',
-          is_featured: false, is_best_seller: false
+          is_featured: false, is_best_seller: false, sale_price: '', sale_ends_at: ''
         });
         fetchData();
         setNotification(editingProduct ? 'Product updated successfully!' : 'Product added successfully!');
@@ -168,7 +204,9 @@ export default function AdminProducts() {
       farmer_id: product.farmer_id?.toString() || '',
       image_url: product.image_url,
       is_featured: !!product.is_featured,
-      is_best_seller: !!product.is_best_seller
+      is_best_seller: !!product.is_best_seller,
+      sale_price: product.sale_price?.toString() || '',
+      sale_ends_at: product.sale_ends_at ? new Date(product.sale_ends_at).toISOString().slice(0, 16) : ''
     });
     setShowAddModal(true);
   };
@@ -229,6 +267,11 @@ export default function AdminProducts() {
       return;
     }
 
+    if (editingCategory) {
+      handleUpdateCategory();
+      return;
+    }
+
     setIsAddingCategory(true);
     try {
       const res = await fetch('/api/admin/categories', {
@@ -242,7 +285,7 @@ export default function AdminProducts() {
 
       if (res.ok) {
         setNewCategoryName('');
-        setNewCategoryEmoji('📦');
+        setNewCategoryEmoji('🌾');
         await fetchData();
         setNotification('Category added successfully!');
       } else {
@@ -253,6 +296,36 @@ export default function AdminProducts() {
       setNotification('Failed to connect to server');
     } finally {
       setIsAddingCategory(false);
+    }
+  };
+
+  const handleUpdateCategory = async () => {
+    if (!editingCategory) return;
+    setIsUpdatingCategory(true);
+    try {
+      const res = await fetch(`/api/admin/categories/${editingCategory.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ name: newCategoryName, emoji: newCategoryEmoji })
+      });
+
+      if (res.ok) {
+        setEditingCategory(null);
+        setNewCategoryName('');
+        setNewCategoryEmoji('🌾');
+        await fetchData();
+        setNotification('Category updated successfully!');
+      } else {
+        const data = await res.json();
+        setNotification(`Error: ${data.error || 'Failed to update category'}`);
+      }
+    } catch (err) {
+      setNotification('Failed to connect to server');
+    } finally {
+      setIsUpdatingCategory(false);
     }
   };
 
@@ -345,11 +418,11 @@ export default function AdminProducts() {
     }
   };
 
-  if (loading) return <div className="animate-pulse h-96 bg-white dark:bg-slate-800 rounded-3xl transition-colors" />;
+  if (loading && products.length === 0) return <div className="animate-pulse h-96 bg-white dark:bg-slate-800 rounded-3xl transition-colors" />;
 
   return (
     <div className="space-y-8">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
         <div className="space-y-1">
           <h1 className="text-4xl font-bold text-gray-900 dark:text-slate-100">Manage Products</h1>
           {selectedIds.length > 0 && (
@@ -358,7 +431,7 @@ export default function AdminProducts() {
             </p>
           )}
         </div>
-        <div className="flex items-center space-x-4">
+        <div className="flex flex-wrap items-center gap-3">
           {selectedIds.length > 0 && (
             <div className="flex items-center space-x-2 animate-in zoom-in-95">
               <button 
@@ -366,7 +439,8 @@ export default function AdminProducts() {
                 className="bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 px-4 py-2 rounded-xl hover:opacity-90 transition-all font-bold flex items-center space-x-2"
               >
                 <Package className="w-4 h-4" />
-                <span>Bulk Edit Stock</span>
+                <span className="hidden sm:inline">Bulk Edit Stock</span>
+                <span className="sm:hidden">Bulk Edit</span>
               </button>
               <button 
                 onClick={() => setSelectedIds([])}
@@ -381,38 +455,59 @@ export default function AdminProducts() {
               if (selectedIds.length === products.length) setSelectedIds([]);
               else setSelectedIds(products.map((p: any) => p.id));
             }}
-            className="bg-white dark:bg-slate-800 text-gray-600 dark:text-slate-300 px-4 py-2 rounded-xl border border-black/10 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-slate-700 transition-all font-bold"
+            className="bg-white dark:bg-slate-800 text-gray-600 dark:text-slate-300 px-4 py-2 rounded-xl border border-black/10 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-slate-700 transition-all font-bold text-sm"
           >
             {selectedIds.length === products.length ? 'Deselect All' : 'Select All'}
           </button>
           <button 
-            onClick={() => setShowCategoryModal(true)}
-            className="bg-white dark:bg-slate-800 text-gray-600 dark:text-slate-300 px-4 py-2 rounded-xl border border-black/10 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-slate-700 transition-all font-bold"
+            onClick={() => setFilterLowStock(!filterLowStock)}
+            className={`px-4 py-2 rounded-xl border font-bold text-sm transition-all ${filterLowStock ? 'bg-amber-100 border-amber-500 text-amber-700' : 'bg-white dark:bg-slate-800 text-gray-600 dark:text-slate-300 border-black/10 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-slate-700'}`}
           >
-            Manage Categories
+            Low Stock
+          </button>
+          <div className="flex items-center bg-white dark:bg-slate-800 rounded-xl border border-black/10 dark:border-white/10 p-1">
+            <button 
+              onClick={() => setViewMode('grid')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${viewMode === 'grid' ? 'bg-[#D4820A] text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:text-slate-400'}`}
+            >
+              Grid
+            </button>
+            <button 
+              onClick={() => setViewMode('table')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${viewMode === 'table' ? 'bg-[#D4820A] text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:text-slate-400'}`}
+            >
+              Table
+            </button>
+          </div>
+          <button 
+            onClick={() => setShowCategoryModal(true)}
+            className="bg-white dark:bg-slate-800 text-gray-600 dark:text-slate-300 px-4 py-2 rounded-xl border border-black/10 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-slate-700 transition-all font-bold text-sm"
+          >
+            Categories
           </button>
           <button 
             onClick={handleAIAnalysis}
             disabled={isAnalyzing}
-            className="flex items-center space-x-2 bg-emerald-600 text-white px-4 py-2 rounded-xl hover:bg-emerald-700 transition-all disabled:opacity-50 shadow-lg"
+            className="flex items-center space-x-2 bg-emerald-600 text-white px-4 py-2 rounded-xl hover:bg-emerald-700 transition-all disabled:opacity-50 shadow-lg text-sm"
           >
             {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-            <span>AI Inventory Analysis</span>
+            <span className="hidden sm:inline">AI Analysis</span>
+            <span className="sm:hidden">AI</span>
           </button>
           <button 
             onClick={() => {
               setEditingProduct(null);
               setFormData({
                 name: '', description: '', price: '', original_price: '', unit: '',
-                stock: '', origin: '', category_id: '', image_url: '',
-                is_featured: false, is_best_seller: false
+                stock: '', origin: '', category_id: '', farmer_id: '', image_url: '',
+                is_featured: false, is_best_seller: false, sale_price: '', sale_ends_at: ''
               });
               setShowAddModal(true);
             }}
-            className="bg-[#D4820A] text-white px-6 py-3 rounded-2xl font-bold flex items-center space-x-2 hover:bg-[#B87008] transition-all"
+            className="bg-[#D4820A] text-white px-4 sm:px-6 py-2 sm:py-3 rounded-xl sm:rounded-2xl font-bold flex items-center space-x-2 hover:bg-[#B87008] transition-all shadow-lg"
           >
             <Plus className="w-5 h-5" />
-            <span>Add New Product</span>
+            <span>Add Product</span>
           </button>
         </div>
       </div>
@@ -430,84 +525,209 @@ export default function AdminProducts() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {products.map((product: any) => (
-          <div 
-            key={product.id} 
-            onClick={() => toggleSelect(product.id)}
-            className={`bg-white dark:bg-slate-800 p-6 rounded-3xl border ${selectedIds.includes(product.id) ? 'border-[#D4820A] ring-2 ring-[#D4820A]/20' : 'border-black/5 dark:border-white/10'} shadow-sm space-y-4 group transition-all cursor-pointer relative`}
-          >
-            <div className="absolute top-4 right-4 z-20">
-              <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${selectedIds.includes(product.id) ? 'bg-[#D4820A] border-[#D4820A]' : 'bg-white/50 dark:bg-slate-800/50 border-white/30 dark:border-slate-600'}`}>
-                {selectedIds.includes(product.id) && <Plus className="w-4 h-4 text-white rotate-45" />}
-              </div>
-            </div>
-            <div className="aspect-video bg-[#F0E6D3] dark:bg-slate-700 rounded-2xl overflow-hidden relative">
-              <img 
-                src={product.image_url || `https://picsum.photos/seed/${product.id}/400/225`} 
-                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                alt={product.name}
-                referrerPolicy="no-referrer"
-                onError={(e) => {
-                  const target = e.target as HTMLImageElement;
-                  target.src = `https://picsum.photos/seed/${product.id}/400/225`;
-                }}
-              />
-              <div className="absolute top-3 left-3 bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm px-2 py-1 rounded-lg flex items-center space-x-1 text-[10px] font-bold text-gray-600 dark:text-slate-300 transition-colors">
-                <MapPin className="w-3 h-3" />
-                <span>{product.origin}</span>
-              </div>
-              {product.is_active === 0 && (
-                <div className="absolute top-3 right-3 bg-red-500 text-white px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider">
-                  Inactive
+      {viewMode === 'grid' ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {products
+            .filter((p: any) => !filterLowStock || p.stock <= 5)
+            .map((product: any) => (
+            <div 
+              key={product.id} 
+              onClick={() => toggleSelect(product.id)}
+              className={`bg-white dark:bg-slate-800 p-6 rounded-3xl border ${selectedIds.includes(product.id) ? 'border-[#D4820A] ring-2 ring-[#D4820A]/20' : 'border-black/5 dark:border-white/10'} shadow-sm space-y-4 group transition-all cursor-pointer relative`}
+            >
+              <div className="absolute top-4 right-4 z-20">
+                <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${selectedIds.includes(product.id) ? 'bg-[#D4820A] border-[#D4820A]' : 'bg-white/50 dark:bg-slate-800/50 border-white/30 dark:border-slate-600'}`}>
+                  {selectedIds.includes(product.id) && <Plus className="w-4 h-4 text-white rotate-45" />}
                 </div>
-              )}
-            </div>
-            
-            <div className="space-y-2">
-              <div className="flex justify-between items-start">
-                <div>
-                  <h3 className="font-bold text-xl text-gray-900 dark:text-slate-100">{product.name}</h3>
-                  <p className="text-gray-500 dark:text-slate-400 text-sm">{product.unit}</p>
+              </div>
+              <div className="aspect-video bg-[#F0E6D3] dark:bg-slate-700 rounded-2xl overflow-hidden relative">
+                <img 
+                  src={product.image_url || `https://picsum.photos/seed/${product.id}/400/225`} 
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                  alt={product.name}
+                  referrerPolicy="no-referrer"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    target.src = `https://picsum.photos/seed/${product.id}/400/225`;
+                  }}
+                />
+                <div className="absolute top-3 left-3 bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm px-2 py-1 rounded-lg flex items-center space-x-1 text-[10px] font-bold text-gray-600 dark:text-slate-300 transition-colors">
+                  <MapPin className="w-3 h-3" />
+                  <span>{product.origin}</span>
                 </div>
-                <span className="text-xl font-bold text-[#D4820A]">₹{product.price}</span>
+                {product.is_active === 0 && (
+                  <div className="absolute top-3 right-3 bg-red-500 text-white px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider">
+                    Inactive
+                  </div>
+                )}
+                {product.stock === 0 && (
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                    <span className="bg-red-600 text-white px-3 py-1 rounded-lg font-bold text-xs uppercase tracking-widest">Out of Stock</span>
+                  </div>
+                )}
               </div>
               
-              <div className="flex items-center space-x-4 pt-2">
-                <div className="flex items-center space-x-1 text-sm">
-                  <Package className="w-4 h-4 text-gray-400 dark:text-slate-500" />
-                  <span className={`font-bold ${product.stock < 10 ? 'text-red-500 dark:text-red-400' : 'text-gray-600 dark:text-slate-300'}`}>
-                    {product.stock} in stock
-                  </span>
+              <div className="space-y-2">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h3 className="font-bold text-xl text-gray-900 dark:text-slate-100">{product.name}</h3>
+                    <p className="text-gray-500 dark:text-slate-400 text-sm">{product.unit}</p>
+                  </div>
+                  <span className="text-xl font-bold text-[#D4820A]">₹{product.price}</span>
+                </div>
+                
+                <div className="flex items-center space-x-2 pt-2">
+                  <div className="flex items-center space-x-2 text-sm">
+                    <Package className="w-4 h-4 text-gray-400 dark:text-slate-500" />
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                      product.stock === 0 ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
+                      product.stock <= 5 ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
+                      'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                    }`}>
+                      {product.stock} in stock
+                    </span>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div className="flex items-center gap-2 pt-4 border-t border-black/5 dark:border-white/5">
-              <button 
-                onClick={() => handleEdit(product)}
-                className="flex-grow bg-gray-50 dark:bg-slate-700 text-gray-600 dark:text-gray-300 py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-gray-100 dark:hover:bg-slate-600 transition-all"
-              >
-                <Edit className="w-4 h-4" />
-                <span>Edit</span>
-              </button>
-              <button 
-                type="button"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  handleDeleteProduct(product.id);
-                }}
-                disabled={deletingId === product.id}
-                className={`p-3 rounded-xl transition-all flex items-center justify-center disabled:opacity-50 cursor-pointer relative z-10 ${confirmDeleteId === product.id ? 'bg-red-600 text-white animate-pulse' : 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40'}`}
-                title={confirmDeleteId === product.id ? "Click again to confirm" : "Delete Product"}
-              >
-                {deletingId === product.id ? <Loader2 className="w-5 h-5 animate-spin" /> : (confirmDeleteId === product.id ? <Save className="w-5 h-5" /> : <Trash2 className="w-5 h-5" />)}
-              </button>
+              <div className="flex items-center gap-2 pt-4 border-t border-black/5 dark:border-white/5">
+                <button 
+                  onClick={(e) => { e.stopPropagation(); handleEdit(product); }}
+                  className="flex-grow bg-gray-50 dark:bg-slate-700 text-gray-600 dark:text-gray-300 py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-gray-100 dark:hover:bg-slate-600 transition-all"
+                >
+                  <Edit className="w-4 h-4" />
+                  <span>Edit</span>
+                </button>
+                <button 
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleDeleteProduct(product.id);
+                  }}
+                  disabled={deletingId === product.id}
+                  className={`p-3 rounded-xl transition-all flex items-center justify-center disabled:opacity-50 cursor-pointer relative z-10 ${confirmDeleteId === product.id ? 'bg-red-600 text-white animate-pulse' : 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40'}`}
+                  title={confirmDeleteId === product.id ? "Click again to confirm" : "Delete Product"}
+                >
+                  {deletingId === product.id ? <Loader2 className="w-5 h-5 animate-spin" /> : (confirmDeleteId === product.id ? <Save className="w-5 h-5" /> : <Trash2 className="w-5 h-5" />)}
+                </button>
+              </div>
             </div>
+          ))}
+        </div>
+      ) : (
+        <div className="bg-white dark:bg-slate-800 rounded-3xl border border-black/5 dark:border-white/10 overflow-hidden shadow-sm transition-colors">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-gray-50 dark:bg-slate-900/50 border-b border-black/5 dark:border-white/10">
+                  <th className="p-4 w-12">
+                    <input 
+                      type="checkbox"
+                      checked={selectedIds.length === products.length && products.length > 0}
+                      onChange={() => {
+                        if (selectedIds.length === products.length) setSelectedIds([]);
+                        else setSelectedIds(products.map((p: any) => p.id));
+                      }}
+                      className="rounded border-gray-300"
+                    />
+                  </th>
+                  <th className="p-4 font-bold text-sm text-gray-500 dark:text-slate-400 uppercase tracking-wider">Product</th>
+                  <th className="p-4 font-bold text-sm text-gray-500 dark:text-slate-400 uppercase tracking-wider">Category</th>
+                  <th className="p-4 font-bold text-sm text-gray-500 dark:text-slate-400 uppercase tracking-wider">Price</th>
+                  <th className="p-4 font-bold text-sm text-gray-500 dark:text-slate-400 uppercase tracking-wider">Stock</th>
+                  <th className="p-4 font-bold text-sm text-gray-500 dark:text-slate-400 uppercase tracking-wider">Status</th>
+                  <th className="p-4 font-bold text-sm text-gray-500 dark:text-slate-400 uppercase tracking-wider text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-black/5 dark:divide-white/5">
+                {products
+                  .filter((p: any) => !filterLowStock || p.stock <= 5)
+                  .map((product: any) => (
+                  <tr 
+                    key={product.id}
+                    onClick={() => toggleSelect(product.id)}
+                    className={`hover:bg-gray-50/50 dark:hover:bg-slate-700/30 transition-colors cursor-pointer ${selectedIds.includes(product.id) ? 'bg-[#D4820A]/5' : ''}`}
+                  >
+                    <td className="p-4" onClick={(e) => e.stopPropagation()}>
+                      <input 
+                        type="checkbox"
+                        checked={selectedIds.includes(product.id)}
+                        onChange={() => toggleSelect(product.id)}
+                        className="rounded border-gray-300"
+                      />
+                    </td>
+                    <td className="p-4">
+                      <div className="flex items-center space-x-3">
+                        <div className="w-10 h-10 rounded-lg overflow-hidden bg-gray-100 dark:bg-slate-700 flex-shrink-0">
+                          <img 
+                            src={product.image_url || `https://picsum.photos/seed/${product.id}/100/100`}
+                            className="w-full h-full object-cover"
+                            alt={product.name}
+                            referrerPolicy="no-referrer"
+                          />
+                        </div>
+                        <div>
+                          <p className="font-bold text-gray-900 dark:text-white">{product.name}</p>
+                          <p className="text-xs text-gray-500 dark:text-slate-400">{product.unit}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="p-4">
+                      <span className="text-sm text-gray-600 dark:text-slate-300">
+                        {categories.find((c: any) => c.id === product.category_id)?.name || 'Uncategorized'}
+                      </span>
+                    </td>
+                    <td className="p-4">
+                      <span className="font-bold text-gray-900 dark:text-white">₹{product.price}</span>
+                    </td>
+                    <td className="p-4">
+                      <div className="flex items-center space-x-2">
+                        <div className={`w-2 h-2 rounded-full ${
+                          product.stock === 0 ? 'bg-red-500' :
+                          product.stock <= 5 ? 'bg-amber-500' :
+                          'bg-green-500'
+                        }`} />
+                        <span className={`font-bold text-sm ${
+                          product.stock === 0 ? 'text-red-600 dark:text-red-400' :
+                          product.stock <= 5 ? 'text-amber-600 dark:text-amber-400' :
+                          'text-green-600 dark:text-green-400'
+                        }`}>
+                          {product.stock}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="p-4">
+                      <span className={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider ${
+                        product.is_active ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                      }`}>
+                        {product.is_active ? 'Active' : 'Inactive'}
+                      </span>
+                    </td>
+                    <td className="p-4 text-right" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center justify-end space-x-2">
+                        <button 
+                          onClick={() => handleEdit(product)}
+                          className="p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
+                        <button 
+                          onClick={() => handleDeleteProduct(product.id)}
+                          disabled={deletingId === product.id}
+                          className={`p-2 rounded-lg transition-all ${confirmDeleteId === product.id ? 'bg-red-600 text-white' : 'text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20'}`}
+                        >
+                          {deletingId === product.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        ))}
-      </div>
+        </div>
+      )}
 
       {/* Add/Edit Product Modal */}
       {showAddModal && (
@@ -522,7 +742,7 @@ export default function AdminProducts() {
                   setFormData({
                     name: '', description: '', price: '', original_price: '', unit: '',
                     stock: '', origin: '', category_id: '', farmer_id: '', image_url: '',
-                    is_featured: false, is_best_seller: false
+                    is_featured: false, is_best_seller: false, sale_price: '', sale_ends_at: ''
                   });
                 }}
                 className="p-2 hover:bg-gray-200 dark:hover:bg-slate-700 rounded-full transition-colors"
@@ -606,7 +826,7 @@ export default function AdminProducts() {
                   >
                     <option value="">Select Category</option>
                     {categories.map((cat: any) => (
-                      <option key={cat.id} value={cat.id}>{cat.name}</option>
+                      <option key={cat.id} value={cat.id}>{cat.emoji} {cat.name}</option>
                     ))}
                   </select>
                 </div>
@@ -670,6 +890,38 @@ export default function AdminProducts() {
                   />
                   <label htmlFor="is_best_seller" className="text-sm font-bold text-gray-900 dark:text-white">Best Seller</label>
                 </div>
+
+                <div className="col-span-2 h-px bg-black/5 dark:bg-white/5 my-2" />
+                
+                <div className="col-span-2">
+                  <h4 className="text-sm font-bold text-[#D4820A] uppercase tracking-wider mb-4">Flash Sale Settings</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-bold mb-1 text-gray-900 dark:text-white">Sale Price (₹)</label>
+                      <input 
+                        type="number"
+                        className="w-full p-3 rounded-xl border border-black/10 dark:border-white/10 bg-white dark:bg-slate-700 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-[#D4820A]/20 transition-colors"
+                        placeholder="Optional"
+                        value={formData.sale_price}
+                        onChange={e => setFormData({...formData, sale_price: e.target.value})}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-bold mb-1 text-gray-900 dark:text-white">Sale Ends At</label>
+                      <input 
+                        type="datetime-local"
+                        className="w-full p-3 rounded-xl border border-black/10 dark:border-white/10 bg-white dark:bg-slate-700 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-[#D4820A]/20 transition-colors"
+                        value={formData.sale_ends_at}
+                        onChange={e => setFormData({...formData, sale_ends_at: e.target.value})}
+                      />
+                    </div>
+                  </div>
+                  {formData.sale_price && formData.price && (
+                    <p className="mt-2 text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                      Customers will save ₹{(parseFloat(formData.price) - parseFloat(formData.sale_price)).toFixed(2)} ({((1 - parseFloat(formData.sale_price) / parseFloat(formData.price)) * 100).toFixed(0)}% off)
+                    </p>
+                  )}
+                </div>
               </div>
 
               <div className="pt-6">
@@ -678,7 +930,7 @@ export default function AdminProducts() {
                   className="w-full bg-[#D4820A] text-white py-4 rounded-2xl font-bold text-lg flex items-center justify-center space-x-2 hover:bg-[#B87008] transition-all"
                 >
                   <Save className="w-5 h-5" />
-                  <span>{editingProduct ? 'Update Product' : 'Save Product'}</span>
+                  <span>{editingProduct ? 'Update Product' : 'Add Product'}</span>
                 </button>
               </div>
             </form>
@@ -691,7 +943,16 @@ export default function AdminProducts() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
           <div className="bg-white dark:bg-slate-800 rounded-3xl w-full max-w-md max-h-[90vh] overflow-hidden flex flex-col transition-colors">
             <div className="p-6 border-b border-black/5 dark:border-white/10 flex items-center justify-between bg-gray-50 dark:bg-slate-900/50">
-              <h3 className="text-xl font-bold text-gray-900 dark:text-slate-100">Manage Categories</h3>
+              <div className="flex items-center space-x-2">
+                <h3 className="text-xl font-bold text-gray-900 dark:text-slate-100">Manage Categories</h3>
+                <button 
+                  onClick={fetchData}
+                  className="p-1 text-gray-400 hover:text-[#D4820A] transition-colors"
+                  title="Refresh categories"
+                >
+                  <Loader2 className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
               <button 
                 onClick={() => setShowCategoryModal(false)}
                 className="p-2 hover:bg-gray-200 dark:hover:bg-slate-700 rounded-full transition-colors"
@@ -700,62 +961,157 @@ export default function AdminProducts() {
               </button>
             </div>
             
-            <div className="p-6 space-y-6">
-              <form onSubmit={handleAddCategory} className="space-y-4">
-                <div className="flex space-x-2">
-                  <input 
-                    type="text"
-                    placeholder="Emoji (e.g. 🍚)"
-                    className="w-20 p-3 rounded-xl border border-black/10 dark:border-white/10 bg-white dark:bg-slate-700 text-center text-2xl outline-none focus:ring-2 focus:ring-[#D4820A]/20 transition-colors"
-                    value={newCategoryEmoji}
-                    onChange={e => setNewCategoryEmoji(e.target.value)}
-                  />
-                  <input 
-                    type="text"
-                    placeholder="New Category Name"
-                    className="flex-grow p-3 rounded-xl border border-black/10 dark:border-white/10 bg-white dark:bg-slate-700 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-[#D4820A]/20 transition-colors"
-                    value={newCategoryName}
-                    onChange={e => setNewCategoryName(e.target.value)}
-                  />
-                </div>
-                <button 
-                  type="submit"
-                  disabled={isAddingCategory}
-                  className="w-full bg-[#D4820A] text-white py-3 rounded-xl font-bold hover:bg-[#B87008] transition-all disabled:opacity-50 flex items-center justify-center space-x-2"
-                >
-                  {isAddingCategory ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                  <span>Add Category</span>
-                </button>
-              </form>
-
-              <div className="space-y-2 max-h-64 overflow-y-auto">
-                {categories.map((cat: any) => (
-                  <div key={cat.id} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-slate-900/50 rounded-xl border border-black/5 dark:border-white/5">
-                    <div className="flex items-center space-x-3">
-                      <span className="text-2xl">{cat.emoji || '📦'}</span>
-                      <span className="font-medium text-gray-900 dark:text-slate-100">{cat.name}</span>
-                    </div>
+            <div className="p-6 space-y-6 overflow-y-auto flex-grow">
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="block text-sm font-bold text-gray-700 dark:text-white uppercase tracking-wider">Select Category to Edit/Delete</label>
+                  <select 
+                    className="w-full p-3 rounded-xl border border-black/10 dark:border-white/10 bg-white dark:bg-slate-700 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-[#D4820A]/20 transition-colors"
+                    value={editingCategory?.id || ''}
+                    onChange={(e) => {
+                      const catId = e.target.value;
+                      if (!catId) {
+                        setEditingCategory(null);
+                        setNewCategoryName('');
+                        setNewCategoryEmoji('🌾');
+                        return;
+                      }
+                      const cat = categories.find((c: any) => c.id.toString() === catId);
+                      if (cat) {
+                        setEditingCategory(cat);
+                        setNewCategoryName(cat.name);
+                        setNewCategoryEmoji(cat.emoji || '🌾');
+                      }
+                    }}
+                  >
+                    <option value="">-- Add New Category --</option>
+                    {categories.map((cat: any) => (
+                      <option key={cat.id} value={cat.id}>{cat.emoji} {cat.name}</option>
+                    ))}
+                  </select>
+                  {editingCategory && (
                     <button 
                       type="button"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        handleDeleteCategory(cat.id);
+                      onClick={() => {
+                        setEditingCategory(null);
+                        setNewCategoryName('');
+                        setNewCategoryEmoji('🌾');
                       }}
-                      disabled={deletingCatId === cat.id}
-                      className={`p-1 rounded transition-all disabled:opacity-50 cursor-pointer relative z-10 ${confirmDeleteCatId === cat.id ? 'text-red-600 animate-pulse scale-125' : 'text-red-500 hover:text-red-700 dark:hover:text-red-400'}`}
-                      title={confirmDeleteCatId === cat.id ? "Click again to confirm" : "Delete Category"}
+                      className="absolute right-10 top-[38px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                      title="Switch to Add New"
                     >
-                      {deletingCatId === cat.id ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : confirmDeleteCatId === cat.id ? (
-                        <Save className="w-4 h-4 text-red-600" />
-                      ) : (
-                        <Trash2 className="w-4 h-4" />
-                      )}
+                      <X className="w-4 h-4" />
                     </button>
+                  )}
+                </div>
+
+                <div className="h-px bg-black/5 dark:bg-white/5 my-4" />
+
+                <form onSubmit={handleAddCategory} className="space-y-4">
+                  <div className="grid grid-cols-1 gap-4">
+                    <div className="space-y-2">
+                      <label className="block text-sm font-bold text-gray-700 dark:text-white uppercase tracking-wider">Category Name</label>
+                      <input 
+                        type="text"
+                        placeholder="e.g. Honey, Spices, Rice"
+                        className="w-full p-3 rounded-xl border border-black/10 dark:border-white/10 bg-white dark:bg-slate-700 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-[#D4820A]/20 transition-colors"
+                        value={newCategoryName}
+                        onChange={e => setNewCategoryName(e.target.value)}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="block text-sm font-bold text-gray-700 dark:text-white uppercase tracking-wider">Select Emoji</label>
+                      <div className="flex space-x-2">
+                        <select 
+                          className="flex-grow p-3 rounded-xl border border-black/10 dark:border-white/10 bg-white dark:bg-slate-700 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-[#D4820A]/20 transition-colors"
+                          value={newCategoryEmoji}
+                          onChange={(e) => setNewCategoryEmoji(e.target.value)}
+                        >
+                          {['🌾', '🍚', '🥦', '🥬', '🥕', '🌶️', '🍎', '🥭', '🍇', '🌽', '🥚', '🥛', '🧀', '🍯', '🥜', '🫘', '🐐', '🐔', '🐓', '🐄', '🐑', '🐖', '🐟', '🦆', '🥩', '🍗', '🍄', '🧺', '🚜', '📦'].map(emoji => (
+                            <option key={emoji} value={emoji}>{emoji} {emoji === '🍯' ? '(Honey)' : ''}</option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                          className="w-14 p-3 rounded-xl border border-black/10 dark:border-white/10 bg-white dark:bg-slate-700 text-center text-2xl outline-none focus:ring-2 focus:ring-[#D4820A]/20 transition-colors hover:bg-gray-50 dark:hover:bg-slate-600"
+                        >
+                          <Smile className="w-6 h-6 mx-auto text-gray-400" />
+                        </button>
+                      </div>
+                      {showEmojiPicker && (
+                        <div className="absolute z-[100] mt-2">
+                          <div className="fixed inset-0" onClick={() => setShowEmojiPicker(false)} />
+                          <div className="relative">
+                            <EmojiPicker 
+                              onEmojiClick={(emojiData) => {
+                                setNewCategoryEmoji(emojiData.emoji);
+                                setShowEmojiPicker(false);
+                              }}
+                              theme={document.documentElement.classList.contains('dark') ? Theme.DARK : Theme.LIGHT}
+                              width={300}
+                              height={400}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                ))}
+
+                  <div className="flex gap-2 pt-2">
+                    <button 
+                      type="submit"
+                      disabled={isAddingCategory || isUpdatingCategory}
+                      className="flex-grow bg-[#D4820A] text-white py-3 rounded-xl font-bold hover:bg-[#B87008] transition-all disabled:opacity-50 flex items-center justify-center space-x-2 shadow-lg"
+                    >
+                      {(isAddingCategory || isUpdatingCategory) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                      <span>{editingCategory ? 'Update Category' : 'Add Category'}</span>
+                    </button>
+                    
+                    {editingCategory && (
+                      <button 
+                        type="button"
+                        onClick={() => handleDeleteCategory(editingCategory.id)}
+                        disabled={deletingCatId === editingCategory.id}
+                        className={`px-4 py-3 rounded-xl font-bold transition-all flex items-center justify-center space-x-2 ${confirmDeleteCatId === editingCategory.id ? 'bg-red-600 text-white animate-pulse' : 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40'}`}
+                      >
+                        {deletingCatId === editingCategory.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                        <span>{confirmDeleteCatId === editingCategory.id ? 'Confirm' : 'Delete'}</span>
+                      </button>
+                    )}
+
+                    {editingCategory && (
+                      <button 
+                        type="button"
+                        onClick={() => {
+                          setEditingCategory(null);
+                          setNewCategoryName('');
+                          setNewCategoryEmoji('🌾');
+                        }}
+                        className="px-4 bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-slate-300 rounded-xl font-bold hover:bg-gray-200 dark:hover:bg-slate-600 transition-all"
+                      >
+                        Cancel
+                      </button>
+                    )}
+                  </div>
+                </form>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">Quick Emoji Suggestions</p>
+                <div className="flex flex-wrap gap-2">
+                  {['🌾', '🍚', '🥦', '🥬', '🥕', '🌶️', '🍎', '🥭', '🍇', '🌽', '🍯', '🥚', '🥛', '🧀', '🥜', '🫘', '🐐', '🐔', '🐄', '🐑', '🐖', '🐟', '🥩', '🍄', '🧺', '🚜'].map(emoji => (
+                    <button
+                      key={emoji}
+                      type="button"
+                      onClick={() => setNewCategoryEmoji(emoji)}
+                      className={`w-10 h-10 flex items-center justify-center rounded-lg border transition-all ${newCategoryEmoji === emoji ? 'bg-[#D4820A]/10 border-[#D4820A] scale-110' : 'bg-gray-50 dark:bg-slate-900/50 border-black/5 dark:border-white/5 hover:border-black/20 dark:hover:border-white/20'}`}
+                    >
+                      <span className="text-xl">{emoji}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           </div>

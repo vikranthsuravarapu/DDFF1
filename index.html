@@ -4,13 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>DDFF - Direct Delivery from Farmer</title>
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#D4820A">
     <script>
       window.gm_authFailure = function() {
         console.error('Google Maps authentication failed. Please check your API key and billing settings.');
         window.dispatchEvent(new CustomEvent('google-maps-auth-failure'));
       };
     </script>
-    <script src="https://maps.googleapis.com/maps/api/js?key=%VITE_GOOGLE_MAPS_API_KEY%&libraries=places"></script>
+    <script async defer src="https://maps.googleapis.com/maps/api/js?key=%VITE_GOOGLE_MAPS_API_KEY%&libraries=places"></script>
   </head>
   <body>
     <div id="root"></div>

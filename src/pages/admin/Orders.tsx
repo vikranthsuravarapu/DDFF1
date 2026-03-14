@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { Package, MapPin, Clock, CheckCircle2, XCircle, Truck, Sparkles, Loader2, X } from 'lucide-react';
+import { Package, MapPin, Clock, CheckCircle2, XCircle, Truck, Sparkles, Loader2, X, Eye, ExternalLink } from 'lucide-react';
 import { analyzeAdminData } from '../../services/geminiService';
 import ReactMarkdown from 'react-markdown';
+import { Link } from 'react-router-dom';
+import { motion, AnimatePresence } from 'motion/react';
 
 export default function AdminOrders() {
   const { token } = useAuth();
@@ -12,6 +14,7 @@ export default function AdminOrders() {
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [statusFilter, setStatusFilter] = useState('');
+  const [selectedProof, setSelectedProof] = useState<string | null>(null);
 
   useEffect(() => {
     fetchOrders();
@@ -129,6 +132,7 @@ export default function AdminOrders() {
                 <th className="px-6 py-4 font-bold">Amount</th>
                 <th className="px-6 py-4 font-bold">Delivery Partner</th>
                 <th className="px-6 py-4 font-bold">Status</th>
+                <th className="px-6 py-4 font-bold">Refund</th>
                 <th className="px-6 py-4 font-bold">Actions</th>
               </tr>
             </thead>
@@ -136,8 +140,17 @@ export default function AdminOrders() {
               {orders.map((order: any) => (
                 <tr key={order.id} className="hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
                   <td className="px-6 py-4">
-                    <span className="font-bold text-gray-900 dark:text-slate-100">#GR-{order.id.toString().padStart(4, '0')}</span>
+                    <Link to={`/orders/${order.id}`} className="group flex items-center space-x-2">
+                      <span className="font-bold text-gray-900 dark:text-slate-100 group-hover:text-[#D4820A] transition-colors">#GR-{order.id.toString().padStart(4, '0')}</span>
+                      <ExternalLink className="w-3 h-3 text-gray-400 opacity-0 group-hover:opacity-100 transition-all" />
+                    </Link>
                     <p className="text-xs text-gray-400 dark:text-slate-500">{new Date(order.created_at).toLocaleDateString()}</p>
+                    {order.delivery_slot && (
+                      <div className="mt-1 flex items-center space-x-1 text-[10px] font-bold text-purple-600 dark:text-purple-400 uppercase">
+                        <Clock className="w-3 h-3" />
+                        <span>{order.delivery_slot}</span>
+                      </div>
+                    )}
                   </td>
                   <td className="px-6 py-4">
                     <p className="font-bold text-gray-900 dark:text-slate-100">{order.user_name}</p>
@@ -173,6 +186,30 @@ export default function AdminOrders() {
                     </span>
                   </td>
                   <td className="px-6 py-4">
+                    {order.status === 'cancelled' && (
+                      <div className="flex flex-col gap-1">
+                        {order.payment_method === 'cod' ? (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-gray-100 dark:bg-slate-700 text-gray-500 uppercase">COD — No Refund</span>
+                        ) : (
+                          <>
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${
+                              order.refund_status === 'processed' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' :
+                              order.refund_status === 'pending' ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400' :
+                              'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
+                            }`}>
+                              {order.refund_method} Refund {order.refund_status === 'processed' ? '✅' : '🕐'}
+                            </span>
+                            {order.refund_id && (
+                              <p className="text-[8px] text-gray-400 dark:text-slate-500 font-mono truncate max-w-[80px]" title={order.refund_id}>
+                                ID: {order.refund_id}
+                              </p>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-6 py-4">
                     <div className="flex items-center space-x-2">
                       <button 
                         onClick={() => updateStatus(order.id, 'confirmed')}
@@ -202,6 +239,15 @@ export default function AdminOrders() {
                       >
                         <XCircle className="w-5 h-5" />
                       </button>
+                      {order.proof_of_delivery_image && (
+                        <button 
+                          onClick={() => setSelectedProof(order.proof_of_delivery_image)}
+                          className="p-2 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 rounded-lg transition-colors"
+                          title="View Proof of Delivery"
+                        >
+                          <Eye className="w-5 h-5" />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -210,6 +256,45 @@ export default function AdminOrders() {
           </table>
         </div>
       </div>
+
+      <AnimatePresence>
+        {selectedProof && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="relative bg-white dark:bg-slate-800 p-2 rounded-[2.5rem] max-w-2xl w-full overflow-hidden shadow-2xl"
+            >
+              <button 
+                onClick={() => setSelectedProof(null)}
+                className="absolute top-6 right-6 p-2 bg-black/50 hover:bg-black/70 text-white rounded-full z-10 transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+              <div className="p-6 space-y-4">
+                <h3 className="text-xl font-bold text-gray-900 dark:text-slate-100">Proof of Delivery</h3>
+                <div className="aspect-video rounded-3xl overflow-hidden bg-gray-100 dark:bg-slate-900">
+                  <img 
+                    src={selectedProof} 
+                    alt="Proof of Delivery" 
+                    className="w-full h-full object-contain"
+                  />
+                </div>
+                <div className="flex justify-end">
+                  <a 
+                    href={selectedProof} 
+                    download 
+                    className="text-[#D4820A] font-bold text-sm hover:underline"
+                  >
+                    Download Image
+                  </a>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

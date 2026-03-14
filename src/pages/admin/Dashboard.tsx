@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react';
-import { BarChart3, Package, Users, AlertTriangle, TrendingUp, ShoppingBag, ChevronRight, Sparkles, Loader2, X } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { BarChart3, Package, Users, AlertTriangle, TrendingUp, ShoppingBag, ChevronRight, Sparkles, Loader2, X, UserPlus, MapPin, Bike, Tag } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { analyzeAdminData } from '../../services/geminiService';
+import { formatCurrency } from '../../utils/format';
 import ReactMarkdown from 'react-markdown';
 
 export default function AdminDashboard() {
   const { token } = useAuth();
+  const navigate = useNavigate();
   const [stats, setStats] = useState<any>(null);
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -30,10 +32,12 @@ export default function AdminDashboard() {
   if (!stats) return <div className="animate-pulse h-96 bg-white dark:bg-slate-800 rounded-3xl transition-colors" />;
 
   const cards = [
-    { title: 'Total Sales', value: `₹${stats.totalSales}`, icon: TrendingUp, color: 'text-green-600 dark:text-green-400', bg: 'bg-green-50 dark:bg-green-900/20' },
-    { title: 'Total Orders', value: stats.orderCount, icon: ShoppingBag, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-900/20' },
-    { title: 'Customers', value: stats.userCount, icon: Users, color: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-50 dark:bg-purple-900/20' },
-    { title: 'Low Stock', value: stats.lowStock, icon: AlertTriangle, color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-900/20' },
+    { title: 'Total Sales', value: formatCurrency(stats.totalSales), icon: TrendingUp, color: 'text-green-600 dark:text-green-400', bg: 'bg-green-50 dark:bg-green-900/20', emoji: '💰', path: '/admin/orders' },
+    { title: 'Total Orders', value: stats.orderCount, icon: ShoppingBag, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-900/20', emoji: '📦', path: '/admin/orders' },
+    { title: 'Customers', value: stats.userCount, icon: Users, color: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-50 dark:bg-purple-900/20', emoji: '👥', path: '/admin/users' },
+    { title: 'Delivery Staff', value: stats.deliveryBoyCount || 0, icon: Bike, color: 'text-orange-600 dark:text-orange-400', bg: 'bg-orange-50 dark:bg-orange-900/20', emoji: '🛵', path: '/admin/delivery-staff' },
+    { title: 'Farmers', value: stats.farmerCount || 0, icon: UserPlus, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-900/20', emoji: '👨‍🌾', path: '/admin/farmers' },
+    { title: 'Low Stock', value: stats.lowStock, icon: AlertTriangle, color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-900/20', emoji: '⚠️', path: '/admin/products?filter=low-stock' },
   ];
 
   return (
@@ -74,13 +78,16 @@ export default function AdminDashboard() {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            {cards.map((card, i) => (
+        {cards.map((card, i) => (
           <Link 
             key={i} 
-            to={card.title === 'Total Orders' ? '/admin/orders' : card.title === 'Customers' ? '/admin/users' : '#'}
-            className="bg-white dark:bg-slate-800 p-6 rounded-3xl border border-black/5 dark:border-white/10 shadow-sm space-y-4 hover:shadow-md transition-all block"
+            to={card.path}
+            className="bg-white dark:bg-slate-800 p-6 rounded-3xl border border-black/5 dark:border-white/10 shadow-sm space-y-4 hover:shadow-md transition-all block relative overflow-hidden group active:scale-95"
           >
-            <div className={`${card.bg} ${card.color} w-12 h-12 rounded-2xl flex items-center justify-center`}>
+            <div className="absolute -right-2 -top-2 opacity-10 text-6xl rotate-12 group-hover:scale-110 transition-transform">
+              {card.emoji}
+            </div>
+            <div className={`${card.bg} ${card.color} w-12 h-12 rounded-2xl flex items-center justify-center relative z-10`}>
               <card.icon className="w-6 h-6" />
             </div>
             <div>
@@ -122,19 +129,57 @@ export default function AdminDashboard() {
           <div className="grid grid-cols-2 gap-4">
             <Link 
               to="/admin/products"
-              className="p-6 rounded-2xl border border-black/10 dark:border-white/10 hover:border-[#D4820A] hover:bg-[#D4820A]/5 transition-all text-left space-y-2 group"
+              className="p-6 rounded-2xl border border-black/10 dark:border-white/10 hover:border-[#D4820A] hover:bg-[#D4820A]/5 transition-all text-left space-y-2 group relative overflow-hidden"
             >
-              <Package className="w-6 h-6 text-[#D4820A] group-hover:scale-110 transition-transform" />
-              <p className="font-bold text-gray-900 dark:text-slate-100">Manage Products</p>
-              <p className="text-xs text-gray-500 dark:text-slate-400">Add, edit or remove items</p>
+              <div className="absolute -right-2 -top-2 opacity-5 text-6xl group-hover:scale-110 transition-transform">🌾</div>
+              <Package className="w-6 h-6 text-[#D4820A] group-hover:scale-110 transition-transform relative z-10" />
+              <p className="font-bold text-gray-900 dark:text-slate-100 relative z-10">Manage Products</p>
+              <p className="text-xs text-gray-500 dark:text-slate-400 relative z-10">Add, edit or remove items</p>
             </Link>
             <Link 
               to="/admin/orders"
-              className="p-6 rounded-2xl border border-black/10 dark:border-white/10 hover:border-[#D4820A] hover:bg-[#D4820A]/5 transition-all text-left space-y-2 group"
+              className="p-6 rounded-2xl border border-black/10 dark:border-white/10 hover:border-[#D4820A] hover:bg-[#D4820A]/5 transition-all text-left space-y-2 group relative overflow-hidden"
             >
-              <ShoppingBag className="w-6 h-6 text-[#D4820A] group-hover:scale-110 transition-transform" />
-              <p className="font-bold text-gray-900 dark:text-slate-100">Manage Orders</p>
-              <p className="text-xs text-gray-500 dark:text-slate-400">Update status & tracking</p>
+              <div className="absolute -right-2 -top-2 opacity-5 text-6xl group-hover:scale-110 transition-transform">📦</div>
+              <ShoppingBag className="w-6 h-6 text-[#D4820A] group-hover:scale-110 transition-transform relative z-10" />
+              <p className="font-bold text-gray-900 dark:text-slate-100 relative z-10">Manage Orders</p>
+              <p className="text-xs text-gray-500 dark:text-slate-400 relative z-10">Update status & tracking</p>
+            </Link>
+            <Link 
+              to="/admin/farmers"
+              className="p-6 rounded-2xl border border-black/10 dark:border-white/10 hover:border-[#D4820A] hover:bg-[#D4820A]/5 transition-all text-left space-y-2 group relative overflow-hidden"
+            >
+              <div className="absolute -right-2 -top-2 opacity-5 text-6xl group-hover:scale-110 transition-transform">👨‍🌾</div>
+              <UserPlus className="w-6 h-6 text-[#D4820A] group-hover:scale-110 transition-transform relative z-10" />
+              <p className="font-bold text-gray-900 dark:text-slate-100 relative z-10">Manage Farmers</p>
+              <p className="text-xs text-gray-500 dark:text-slate-400 relative z-10">Add or edit farmer profiles</p>
+            </Link>
+            <Link 
+              to="/admin/delivery-staff"
+              className="p-6 rounded-2xl border border-black/10 dark:border-white/10 hover:border-[#D4820A] hover:bg-[#D4820A]/5 transition-all text-left space-y-2 group relative overflow-hidden"
+            >
+              <div className="absolute -right-2 -top-2 opacity-5 text-6xl group-hover:scale-110 transition-transform">🛵</div>
+              <Bike className="w-6 h-6 text-[#D4820A] group-hover:scale-110 transition-transform relative z-10" />
+              <p className="font-bold text-gray-900 dark:text-slate-100 relative z-10">Delivery Staff</p>
+              <p className="text-xs text-gray-500 dark:text-slate-400 relative z-10">Manage staff & accounts</p>
+            </Link>
+            <Link 
+              to="/admin/delivery-zones"
+              className="p-6 rounded-2xl border border-black/10 dark:border-white/10 hover:border-[#D4820A] hover:bg-[#D4820A]/5 transition-all text-left space-y-2 group relative overflow-hidden"
+            >
+              <div className="absolute -right-2 -top-2 opacity-5 text-6xl group-hover:scale-110 transition-transform">📍</div>
+              <MapPin className="w-6 h-6 text-[#D4820A] group-hover:scale-110 transition-transform relative z-10" />
+              <p className="font-bold text-gray-900 dark:text-slate-100 relative z-10">Delivery Zones</p>
+              <p className="text-xs text-gray-500 dark:text-slate-400 relative z-10">Manage villages & fees</p>
+            </Link>
+            <Link 
+              to="/admin/promo-codes"
+              className="p-6 rounded-2xl border border-black/10 dark:border-white/10 hover:border-[#D4820A] hover:bg-[#D4820A]/5 transition-all text-left space-y-2 group relative overflow-hidden"
+            >
+              <div className="absolute -right-2 -top-2 opacity-5 text-6xl group-hover:scale-110 transition-transform">🏷️</div>
+              <Tag className="w-6 h-6 text-[#D4820A] group-hover:scale-110 transition-transform relative z-10" />
+              <p className="font-bold text-gray-900 dark:text-slate-100 relative z-10">Promo Codes</p>
+              <p className="text-xs text-gray-500 dark:text-slate-400 relative z-10">Create & manage offers</p>
             </Link>
           </div>
         </div>

@@ -8,9 +8,49 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [resendLoading, setResendLoading] = useState(false);
+  const [resendMessage, setResendMessage] = useState('');
+  const [requiresVerification, setRequiresVerification] = useState(false);
+  const [verificationToken, setVerificationToken] = useState('');
+  const [unverifiedEmail, setUnverifiedEmail] = useState('');
   const [errors, setErrors] = useState<{email?: string, password?: string}>({});
-  const { login } = useAuth();
+  const { login, isAuthenticated, user } = useAuth();
   const navigate = useNavigate();
+  const [googleConfig, setGoogleConfig] = useState<{
+    redirect_uri: string, 
+    client_id: string, 
+    app_url_env: string,
+    client_id_length: number,
+    client_secret_length: number,
+    client_secret_preview: string,
+    env_keys: string[]
+  } | null>(null);
+  const [showDebug, setShowDebug] = useState(false);
+  const [testResult, setTestResult] = useState<{status: string, message: string, error?: string} | null>(null);
+  const [testing, setTesting] = useState(false);
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    // Simple temporary feedback could be added here if needed
+  };
+
+  React.useEffect(() => {
+    if (isAuthenticated && user?.role === 'delivery_boy') {
+      navigate('/delivery');
+    }
+  }, [isAuthenticated, user, navigate]);
+
+  React.useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
+        const { token, user } = event.data;
+        login(token, user);
+        navigate(user.role === 'admin' ? '/admin' : '/');
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [login, navigate]);
 
   const validate = () => {
     const newErrors: {email?: string, password?: string} = {};
@@ -41,12 +81,39 @@ export default function Login() {
         login(data.token, data.user);
         navigate(data.user.role === 'admin' ? '/admin' : '/');
       } else {
+        if (data.requiresVerification) {
+          setRequiresVerification(true);
+          setVerificationToken(data.verificationToken || '');
+          setUnverifiedEmail(data.email);
+        }
         setError(data.error);
       }
     } catch (e) {
       setError('Something went wrong');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    setResendLoading(true);
+    setResendMessage('');
+    try {
+      const res = await fetch('/api/auth/resend-verification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: unverifiedEmail })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setResendMessage('Verification email sent! Please check your inbox.');
+      } else {
+        setResendMessage(data.error || 'Failed to resend verification email.');
+      }
+    } catch (error) {
+      setResendMessage('Something went wrong. Please try again.');
+    } finally {
+      setResendLoading(false);
     }
   };
 
@@ -61,7 +128,41 @@ export default function Login() {
       </div>
 
       <form onSubmit={handleSubmit} className="bg-white dark:bg-slate-800 p-8 rounded-3xl border border-black/5 dark:border-white/10 shadow-sm space-y-6 transition-colors">
-        {error && <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 p-4 rounded-xl text-sm font-medium">{error}</div>}
+        {error && (
+          <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 p-4 rounded-xl text-sm font-medium space-y-3">
+            <p>{error}</p>
+            {requiresVerification && (
+              <div className="pt-2 border-t border-red-200 dark:border-red-800 space-y-3">
+                <button 
+                  type="button"
+                  onClick={handleResendVerification}
+                  disabled={resendLoading}
+                  className="text-[#D4820A] font-bold hover:underline flex items-center space-x-2 disabled:opacity-50"
+                >
+                  {resendLoading ? 'Sending...' : 'Resend verification email'}
+                </button>
+                
+                {verificationToken && (
+                  <div className="pt-2">
+                    <p className="text-[10px] text-gray-500 dark:text-slate-400 italic mb-2">
+                      (Dev Mode: Email service not configured)
+                    </p>
+                    <Link 
+                      to={`/verify-email?token=${verificationToken}`}
+                      className="text-xs bg-[#D4820A]/10 text-[#D4820A] px-3 py-1 rounded-lg font-bold hover:bg-[#D4820A]/20 transition-colors inline-block"
+                    >
+                      Verify Account Directly
+                    </Link>
+                  </div>
+                )}
+
+                {resendMessage && (
+                  <p className="mt-2 text-xs text-gray-600 dark:text-slate-400">{resendMessage}</p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
         
         <div className="space-y-4">
           <div>
@@ -125,9 +226,18 @@ export default function Login() {
         <button 
           type="button"
           onClick={async () => {
-            const res = await fetch('/api/auth/google/url');
-            const { url } = await res.json();
-            window.open(url, 'google_oauth', 'width=500,height=600');
+            try {
+              const res = await fetch('/api/auth/google/url');
+              const data = await res.json();
+              if (!res.ok) {
+                setError(data.error || 'Failed to get Google Auth URL');
+                return;
+              }
+              window.open(data.url, 'google_oauth', 'width=500,height=600');
+            } catch (err) {
+              setError('Failed to initiate Google login');
+              console.error('Google Auth Error:', err);
+            }
           }}
           className="w-full bg-white dark:bg-slate-800 border border-black/10 dark:border-white/10 py-4 rounded-2xl font-bold text-lg flex items-center justify-center space-x-3 hover:bg-gray-50 dark:hover:bg-slate-700 transition-all text-gray-900 dark:text-slate-100"
         >
@@ -138,7 +248,129 @@ export default function Login() {
         <p className="text-center text-gray-500 dark:text-slate-300">
           Don't have an account? <Link to="/register" className="text-[#D4820A] font-bold">Register</Link>
         </p>
+
+        <div className="pt-4 text-center space-y-4">
+          <Link 
+            to="/delivery-login" 
+            className="text-xs font-bold text-slate-400 hover:text-[#D4820A] transition-colors uppercase tracking-widest block"
+          >
+            Delivery Staff Login
+          </Link>
+          
+          <button 
+            type="button"
+            onClick={async () => {
+              try {
+                const res = await fetch('/api/auth/google/config');
+                const data = await res.json();
+                setGoogleConfig(data);
+                setShowDebug(true);
+              } catch (err) {
+                console.error('Failed to fetch Google config:', err);
+              }
+            }}
+            className="text-[10px] text-slate-400 hover:text-[#D4820A] transition-colors uppercase tracking-widest opacity-50 hover:opacity-100"
+          >
+            Debug Google Login
+          </button>
+        </div>
       </form>
+
+      {showDebug && googleConfig && (
+        <div className="p-6 bg-slate-100 dark:bg-slate-900 rounded-3xl border border-black/5 dark:border-white/10 space-y-4 animate-in fade-in slide-in-from-bottom-4 relative z-50">
+          <div className="flex justify-between items-center">
+            <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500">OAuth Debug Info</h3>
+            <button onClick={() => { setShowDebug(false); setTestResult(null); }} className="text-slate-400 hover:text-slate-600 p-2">×</button>
+          </div>
+          
+          <div className="space-y-4 text-[11px] font-mono break-all">
+            <div>
+              <div className="flex justify-between items-end mb-1">
+                <span className="text-slate-400">Redirect URI:</span>
+                <button 
+                  onClick={() => copyToClipboard(googleConfig.redirect_uri)}
+                  className="text-[#D4820A] hover:underline font-bold uppercase text-[9px]"
+                >
+                  Copy
+                </button>
+              </div>
+              <div className="p-3 bg-white dark:bg-slate-800 rounded-xl border border-black/5 dark:border-white/10 select-all">
+                {googleConfig.redirect_uri}
+              </div>
+              <p className="mt-1 text-slate-400 italic">Add this to "Authorized redirect URIs" in Google Console</p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <span className="text-slate-400 block mb-1">Client ID:</span>
+                <div className="p-2 bg-white dark:bg-slate-800 rounded-lg border border-black/5 dark:border-white/10">
+                  {googleConfig.client_id}
+                  <div className="text-[9px] text-slate-400 mt-1">{googleConfig.client_id_length} chars</div>
+                </div>
+              </div>
+              <div>
+                <span className="text-slate-400 block mb-1">Client Secret:</span>
+                <div className="p-2 bg-white dark:bg-slate-800 rounded-lg border border-black/5 dark:border-white/10">
+                  {googleConfig.client_secret_preview}
+                  <div className="text-[9px] text-slate-400 mt-1">{googleConfig.client_secret_length} chars</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-2">
+              <button 
+                type="button"
+                disabled={testing}
+                onClick={async () => {
+                  setTesting(true);
+                  setTestResult(null);
+                  try {
+                    const res = await fetch('/api/auth/google/test-secret');
+                    const data = await res.json();
+                    setTestResult({
+                      status: data.status,
+                      message: data.message,
+                      error: data.google_error
+                    });
+                  } catch (err) {
+                    setTestResult({ status: 'ERROR', message: 'Failed to reach server' });
+                  } finally {
+                    setTesting(false);
+                  }
+                }}
+                className={`w-full py-3 rounded-xl font-bold text-xs transition-all cursor-pointer shadow-lg active:scale-[0.98] ${
+                  testing ? 'bg-slate-400' : 'bg-[#D4820A] hover:bg-[#B87008]'
+                } text-white`}
+              >
+                {testing ? 'Testing...' : 'Test Client Secret with Google'}
+              </button>
+            </div>
+
+            {testResult && (
+              <div className={`p-4 rounded-xl border animate-in zoom-in-95 duration-200 ${
+                testResult.status === 'FAIL' 
+                  ? 'bg-red-50 border-red-100 text-red-700' 
+                  : testResult.status === 'SUCCESS_OR_UNSUPPORTED'
+                  ? 'bg-green-50 border-green-100 text-green-700'
+                  : 'bg-slate-50 border-slate-100 text-slate-700'
+              }`}>
+                <div className="font-bold mb-1">{testResult.status}</div>
+                <div className="text-[10px] leading-relaxed">{testResult.message}</div>
+                {testResult.error && (
+                  <div className="mt-2 pt-2 border-t border-current/10 text-[9px] opacity-70">
+                    Google Error: {testResult.error}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="pt-2 text-[9px] text-slate-400 space-y-1">
+              <div><span className="font-bold">APP_URL:</span> {googleConfig.app_url_env}</div>
+              <div><span className="font-bold">Detected Keys:</span> {googleConfig.env_keys.join(', ')}</div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

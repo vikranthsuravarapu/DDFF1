@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ShieldCheck, CreditCard, Truck, CheckCircle2, MapPin, Search, Navigation, Clock, XCircle, Loader2 } from 'lucide-react';
+import { useNavigate, Link } from 'react-router-dom';
+import { ShieldCheck, CreditCard, Truck, CheckCircle2, MapPin, Search, Navigation, Clock, XCircle, Loader2, Wallet, ChevronRight } from 'lucide-react';
 import { useCart } from '../contexts/CartContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useLanguage } from '../contexts/LanguageContext';
+import { formatCurrency } from '../utils/format';
 
 declare global {
   interface Window {
@@ -22,9 +24,19 @@ const loadRazorpayScript = () => {
 };
 
 export default function Checkout() {
+  const { t } = useLanguage();
   const { items, total, clearCart } = useCart();
-  const { user, token, logout } = useAuth();
+  const { user, token, logout, refreshUser } = useAuth();
   const navigate = useNavigate();
+
+  const [useWallet, setUseWallet] = useState(false);
+
+  useEffect(() => {
+    refreshUser();
+    if (user?.role === 'delivery_boy') {
+      navigate('/delivery');
+    }
+  }, [user, navigate, refreshUser]);
 
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -39,14 +51,11 @@ export default function Checkout() {
   const [showSaved, setShowSaved] = useState(true);
   const [saveThisAddress, setSaveThisAddress] = useState(false);
   const [addressLabel, setAddressLabel] = useState('Home');
+  const [deliveryZones, setDeliveryZones] = useState<any[]>([]);
+  const [currentZone, setCurrentZone] = useState<any>(null);
+  const { userLocation } = useAuth();
   const autocompleteInput = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    if (items.length === 0 && !success) {
-      navigate('/');
-    }
-  }, [items, success, navigate]);
-  
   const [formData, setFormData] = useState({
     house_no: '',
     street: '',
@@ -57,8 +66,44 @@ export default function Checkout() {
     state: '',
     pincode: '',
     phone: user?.phone || '',
-    paymentMethod: 'cod'
+    paymentMethod: 'cod',
+    delivery_slot: ''
   });
+
+  useEffect(() => {
+    fetch('/api/delivery-zones')
+      .then(res => res.json())
+      .then(data => {
+        setDeliveryZones(data);
+        // Initially set zone based on userLocation or first available
+        if (userLocation) {
+          const zone = data.find((z: any) => z.name === userLocation);
+          if (zone) {
+            setCurrentZone(zone);
+            // Also update form pincode if it's empty
+            setFormData(prev => ({ ...prev, pincode: prev.pincode || zone.pincode }));
+          }
+        }
+      })
+      .catch(err => console.error('Failed to fetch delivery zones:', err));
+  }, [userLocation]);
+
+  useEffect(() => {
+    if (deliveryZones.length > 0) {
+      if (formData.pincode && formData.pincode.length === 6) {
+        const zone = deliveryZones.find((z: any) => z.pincode === formData.pincode && z.is_active);
+        setCurrentZone(zone || null);
+      } else if (formData.pincode) {
+        setCurrentZone(null);
+      }
+    }
+  }, [formData.pincode, deliveryZones]);
+
+  useEffect(() => {
+    if (items.length === 0 && !success) {
+      navigate('/');
+    }
+  }, [items, success, navigate]);
 
   useEffect(() => {
     let autocomplete: any = null;
@@ -193,7 +238,7 @@ export default function Checkout() {
 
   const handleUseCurrentLocation = () => {
     if (!navigator.geolocation) {
-      alert('Geolocation is not supported by your browser');
+      alert(t('geolocation_not_supported'));
       return;
     }
 
@@ -203,7 +248,7 @@ export default function Checkout() {
         const { latitude, longitude } = position.coords;
         try {
           if (!window.google || !window.google.maps) {
-            throw new Error('Google Maps library not loaded');
+            throw new Error(t('maps_library_not_loaded'));
           }
           const geocoder = new window.google.maps.Geocoder();
           const response = await geocoder.geocode({
@@ -216,18 +261,18 @@ export default function Checkout() {
               response.results[0].formatted_address
             );
           } else {
-            throw new Error('No results found for this location');
+            throw new Error(t('no_results_found'));
           }
         } catch (error: any) {
           console.error('Geocoding error:', error);
-          alert(error.message || 'Failed to get address from location');
+          alert(error.message || t('failed_get_location_address'));
         } finally {
           setLocating(false);
         }
       },
       (error) => {
         console.error('Geolocation error:', error);
-        alert('Failed to get your location. Please check permissions.');
+        alert(t('failed_get_location'));
         setLocating(false);
       }
     );
@@ -235,16 +280,26 @@ export default function Checkout() {
 
   const validate = () => {
     const newErrors: any = {};
-    if (!formData.house_no) newErrors.house_no = 'Required';
-    if (!formData.street) newErrors.street = 'Required';
-    if (!formData.city) newErrors.city = 'Required';
-    if (!formData.district) newErrors.district = 'Required';
-    if (!formData.state) newErrors.state = 'Required';
-    if (!formData.pincode) newErrors.pincode = 'Required';
-    else if (!/^\d{6}$/.test(formData.pincode)) newErrors.pincode = 'Invalid Pincode';
-    if (!formData.phone) newErrors.phone = 'Required';
-    else if (!/^\d{10}$/.test(formData.phone.replace(/\D/g, ''))) newErrors.phone = 'Invalid Phone Number';
+    if (!formData.house_no) newErrors.house_no = t('required');
+    if (!formData.street) newErrors.street = t('required');
+    if (!formData.city) newErrors.city = t('required');
+    if (!formData.district) newErrors.district = t('required');
+    if (!formData.state) newErrors.state = t('required');
+    if (!formData.pincode) newErrors.pincode = t('required');
+    else if (!/^\d{6}$/.test(formData.pincode)) newErrors.pincode = t('invalid_pincode_format');
+    if (!formData.phone) newErrors.phone = t('required');
+    else if (!/^\d{10}$/.test(formData.phone.replace(/\D/g, ''))) newErrors.phone = t('invalid_phone_format');
     
+    if (!formData.delivery_slot) newErrors.delivery_slot = t('select_delivery_slot');
+    
+    if (!currentZone && formData.pincode) {
+      newErrors.pincode = t('delivery_not_available');
+      setSubmitError(t('pincode_check_error'));
+    } else if (currentZone && Number(total) < Number(currentZone.min_order_amount)) {
+      newErrors.min_order = `⚠️ ${t('min_order_error_prefix')} ${currentZone.name} ${t('min_order_error_middle')}${currentZone.min_order_amount}. ${t('min_order_error_suffix_prefix')}${currentZone.min_order_amount - total} ${t('min_order_error_suffix_suffix')}`;
+      setSubmitError(newErrors.min_order);
+    }
+
     setErrors(newErrors);
     if (Object.keys(newErrors).length > 0) {
       const firstError = Object.keys(newErrors)[0];
@@ -252,6 +307,47 @@ export default function Checkout() {
       element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
     return Object.keys(newErrors).length === 0;
+  };
+
+  const [promoCode, setPromoCode] = useState('');
+  const [appliedPromo, setAppliedPromo] = useState<{ code: string; discount_amount: number } | null>(null);
+  const [promoLoading, setPromoLoading] = useState(false);
+  const [promoError, setPromoError] = useState<string | null>(null);
+
+  const handleApplyPromo = async () => {
+    if (!promoCode.trim()) return;
+    setPromoLoading(true);
+    setPromoError(null);
+    try {
+      const res = await fetch('/api/promo/validate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ 
+          code: promoCode, 
+          amount: total,
+          items: items.map(i => ({ product_id: i.id, quantity: i.quantity }))
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setAppliedPromo({ code: data.code, discount_amount: data.discount_amount });
+        setPromoCode('');
+      } else {
+        setPromoError(data.error || t('invalid_promo'));
+      }
+    } catch (err) {
+      setPromoError(t('failed_validate_promo'));
+    } finally {
+      setPromoLoading(false);
+    }
+  };
+
+  const handleRemovePromo = () => {
+    setAppliedPromo(null);
+    setPromoError(null);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -285,6 +381,14 @@ export default function Checkout() {
         });
       }
 
+      const deliveryFee = Number(currentZone?.delivery_fee || 0);
+      const discountAmount = Number(appliedPromo?.discount_amount || 0);
+      const subtotalWithDelivery = total + deliveryFee - discountAmount;
+      
+      const walletBalance = user?.wallet_balance || 0;
+      const walletAmountUsed = useWallet ? Math.min(walletBalance, subtotalWithDelivery) : 0;
+      const finalAmount = Math.max(0, subtotalWithDelivery - walletAmountUsed);
+
       const res = await fetch('/api/orders', {
         method: 'POST',
         headers: {
@@ -294,7 +398,11 @@ export default function Checkout() {
         body: JSON.stringify({
           items: items.map(i => ({ product_id: i.id, quantity: i.quantity, price: i.price })),
           total_amount: total,
-          final_amount: total,
+          delivery_fee: deliveryFee,
+          discount_amount: discountAmount,
+          promo_code: appliedPromo?.code || null,
+          wallet_amount_used: walletAmountUsed,
+          final_amount: finalAmount,
           payment_method: formData.paymentMethod,
           house_no: formData.house_no,
           street: formData.street,
@@ -304,7 +412,8 @@ export default function Checkout() {
           district: formData.district,
           state: formData.state,
           pincode: formData.pincode,
-          phone: formData.phone
+          phone: formData.phone,
+          delivery_slot: formData.delivery_slot
         })
       });
 
@@ -314,7 +423,7 @@ export default function Checkout() {
         if (formData.paymentMethod === 'online' && data.razorpayOrderId) {
           const resScript = await loadRazorpayScript();
           if (!resScript) {
-            setSubmitError('Razorpay SDK failed to load. Are you online?');
+            setSubmitError(t('razorpay_sdk_error'));
             setLoading(false);
             return;
           }
@@ -345,11 +454,12 @@ export default function Checkout() {
                 if (verifyRes.ok) {
                   setSuccess(true);
                   clearCart();
+                  refreshUser();
                 } else {
-                  setSubmitError('Payment verification failed. Please contact support.');
+                  setSubmitError(t('payment_verification_failed'));
                 }
               } catch (err) {
-                setSubmitError('Error verifying payment.');
+                setSubmitError(t('error_verifying_payment'));
               }
             },
             prefill: {
@@ -370,17 +480,18 @@ export default function Checkout() {
 
         setSuccess(true);
         clearCart();
+        refreshUser();
       } else {
         const data = await res.json();
         if (res.status === 401) {
-          setSubmitError('Your session is invalid or has expired. Please logout and login again to continue.');
+          setSubmitError(t('session_expired_error'));
         } else {
-          setSubmitError(data.error || 'Order failed. Please try again.');
+          setSubmitError(data.error || t('order_failed'));
         }
       }
     } catch (e) {
       console.error('Checkout error:', e);
-      setSubmitError('Order failed. Please check your connection and try again.');
+      setSubmitError(t('order_failed_connection'));
     } finally {
       setLoading(false);
     }
@@ -393,12 +504,12 @@ export default function Checkout() {
           <CheckCircle2 className="w-16 h-16 text-green-600 dark:text-green-400" />
         </div>
         <div className="space-y-2">
-          <h2 className="text-3xl font-bold dark:text-white">Order Confirmed!</h2>
-          <p className="text-gray-600 dark:text-white">Your village fresh products are on their way. Expected delivery in 2-3 days.</p>
+          <h2 className="text-3xl font-bold dark:text-white">{t('order_confirmed')}</h2>
+          <p className="text-gray-600 dark:text-white">{t('order_confirmed_desc')}</p>
         </div>
         <div className="flex flex-col space-y-3">
-          <button onClick={() => navigate('/profile')} className="bg-[#D4820A] text-white py-4 rounded-2xl font-bold">View My Orders</button>
-          <button onClick={() => navigate('/')} className="text-[#D4820A] font-bold">Continue Shopping</button>
+          <button onClick={() => navigate('/profile')} className="bg-[#D4820A] text-white py-4 rounded-2xl font-bold">{t('view_my_orders')}</button>
+          <button onClick={() => navigate('/')} className="text-[#D4820A] font-bold">{t('continue_shopping')}</button>
         </div>
       </div>
     );
@@ -407,22 +518,22 @@ export default function Checkout() {
   return (
     <div className="max-w-4xl mx-auto space-y-8">
       <div className="flex items-center justify-between mb-8">
-        <h1 className="text-4xl font-bold dark:text-white">Checkout</h1>
+        <h1 className="text-4xl font-bold dark:text-white">{t('checkout')}</h1>
         <div className="flex items-center space-x-2">
           {mapsError ? (
             <div className="flex items-center space-x-1 text-red-500 text-xs font-bold bg-red-50 dark:bg-red-900/20 px-3 py-1 rounded-full">
               <XCircle className="w-3 h-3" />
-              <span>Maps Error</span>
+              <span>{t('maps_error')}</span>
             </div>
           ) : mapsLoaded ? (
             <div className="flex items-center space-x-1 text-emerald-500 text-xs font-bold bg-emerald-50 dark:bg-emerald-900/20 px-3 py-1 rounded-full">
               <CheckCircle2 className="w-3 h-3" />
-              <span>Maps Ready</span>
+              <span>{t('maps_ready')}</span>
             </div>
           ) : (
             <div className="flex items-center space-x-1 text-amber-500 text-xs font-bold bg-amber-50 dark:bg-amber-900/20 px-3 py-1 rounded-full">
               <Loader2 className="w-3 h-3 animate-spin" />
-              <span>Loading Maps...</span>
+              <span>{t('loading_maps')}</span>
             </div>
           )}
         </div>
@@ -433,7 +544,7 @@ export default function Checkout() {
           <section className="space-y-4">
             <div className="flex items-center space-x-2 font-bold text-xl">
               <Truck className="w-6 h-6 text-[#D4820A]" />
-              <h2 className="dark:text-white">Delivery Address</h2>
+              <h2 className="dark:text-white">{t('delivery_address')}</h2>
             </div>
             
             <div className="space-y-6">
@@ -441,13 +552,13 @@ export default function Checkout() {
               {savedAddresses.length > 0 && (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-bold dark:text-white">Saved Addresses</h3>
+                    <h3 className="text-sm font-bold dark:text-white">{t('saved_addresses')}</h3>
                     <button 
                       type="button"
                       onClick={() => setShowSaved(!showSaved)}
                       className="text-[#D4820A] text-xs font-bold hover:underline"
                     >
-                      {showSaved ? 'Hide' : 'Show'}
+                      {showSaved ? t('hide') : t('show')}
                     </button>
                   </div>
 
@@ -466,10 +577,10 @@ export default function Checkout() {
                         >
                           <div className="flex items-center justify-between mb-1">
                             <span className="text-[10px] font-bold uppercase tracking-wider bg-gray-100 dark:bg-slate-700 px-2 py-0.5 rounded text-gray-600 dark:text-gray-300">
-                              {addr.label}
+                              {t(addr.label.toLowerCase()) || addr.label}
                             </span>
                             {addr.is_default && (
-                              <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">Default</span>
+                              <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">{t('default')}</span>
                             )}
                           </div>
                           <p className="font-bold text-sm dark:text-white group-hover:text-[#D4820A]">
@@ -494,7 +605,7 @@ export default function Checkout() {
                     className="flex items-center space-x-2 text-[#D4820A] font-bold text-sm hover:underline"
                   >
                     <Clock className="w-4 h-4" />
-                    <span>{showPrevious ? 'Hide Previous Addresses' : 'Select from Previous Addresses'}</span>
+                    <span>{showPrevious ? t('hide_previous') : t('select_previous')}</span>
                   </button>
 
                   {showPrevious && (
@@ -524,14 +635,14 @@ export default function Checkout() {
                 <div>
                   <label className="block text-sm font-bold mb-2 flex items-center space-x-2 dark:text-white">
                     <Search className="w-4 h-4 text-[#D4820A]" />
-                    <span>Search your location</span>
+                    <span>{t('search_location')}</span>
                   </label>
                   <div className="relative">
                     <input 
                       ref={autocompleteInput}
                       type="text" 
                       className="w-full p-4 pl-12 rounded-2xl border border-black/40 dark:border-white/50 bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-gray-600 dark:placeholder:text-slate-300 focus:ring-2 focus:ring-[#D4820A] outline-none transition-colors text-base font-bold"
-                      placeholder={mapsError ? "Search disabled due to Maps error" : "Search for area, street or apartment..."}
+                      placeholder={mapsError ? t('search_disabled_maps_error') : t('search_placeholder')}
                       disabled={mapsError}
                     />
                     <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 dark:text-slate-400 w-5 h-5" />
@@ -545,32 +656,31 @@ export default function Checkout() {
                   className="flex items-center space-x-2 text-[#D4820A] font-bold text-sm hover:underline disabled:opacity-50"
                 >
                   <Navigation className={`w-4 h-4 ${locating ? 'animate-spin' : ''}`} />
-                  <span>{locating ? 'Locating...' : 'Use Current Location'}</span>
+                  <span>{locating ? t('locating') : t('use_current_location')}</span>
                 </button>
-                <p className="text-[10px] text-gray-600 dark:text-white">Powered by Google Maps</p>
+                <p className="text-[10px] text-gray-600 dark:text-white">{t('powered_by_google')}</p>
               </div>
 
               {mapsError && (
                 <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-2xl space-y-2">
                   <div className="flex items-center space-x-2 text-red-600 dark:text-red-400 font-bold text-sm">
                     <XCircle className="w-4 h-4" />
-                    <span>Google Maps Error</span>
+                    <span>{t('maps_error_title')}</span>
                   </div>
                   <p className="text-xs text-red-500 dark:text-red-300 leading-relaxed">
-                    The location search feature is currently unavailable. This is likely due to an invalid API key or billing issues. 
-                    <strong className="block mt-1">Please enter your address manually below.</strong>
+                    {t('maps_error_desc')}
                   </p>
                 </div>
               )}
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="relative">
-                  <label className="block text-sm font-bold mb-2 dark:text-white">House / Flat No.</label>
+                  <label className="block text-sm font-bold mb-2 dark:text-white">{t('house_flat_no')}</label>
                   <input 
                     name="house_no"
                     type="text"
                     className={`w-full p-4 rounded-2xl border ${errors.house_no ? 'border-red-500' : 'border-black/40 dark:border-white/50'} bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-gray-600 dark:placeholder:text-slate-300 focus:ring-2 focus:ring-[#D4820A] outline-none transition-colors text-base font-bold`}
-                    placeholder="e.g. 101, Block A"
+                    placeholder={t('house_no_placeholder')}
                     value={formData.house_no}
                     onChange={e => {
                       setFormData({...formData, house_no: e.target.value});
@@ -580,11 +690,11 @@ export default function Checkout() {
                   {errors.house_no && <div className="absolute left-0 -bottom-5 text-[10px] text-red-500 font-bold">{errors.house_no}</div>}
                 </div>
                 <div>
-                  <label className="block text-sm font-bold mb-2 dark:text-white">Landmark</label>
+                  <label className="block text-sm font-bold mb-2 dark:text-white">{t('landmark')}</label>
                   <input 
                     type="text"
                     className="w-full p-4 rounded-2xl border border-black/40 dark:border-white/50 bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-gray-600 dark:placeholder:text-slate-300 focus:ring-2 focus:ring-[#D4820A] outline-none transition-colors text-base font-bold"
-                    placeholder="e.g. Near Temple"
+                    placeholder={t('landmark_placeholder')}
                     value={formData.landmark}
                     onChange={e => setFormData({...formData, landmark: e.target.value})}
                   />
@@ -592,12 +702,12 @@ export default function Checkout() {
               </div>
 
               <div className="relative">
-                <label className="block text-sm font-bold mb-2 dark:text-white">Address Line</label>
+                <label className="block text-sm font-bold mb-2 dark:text-white">{t('address_line')}</label>
                 <input 
                   name="street"
                   type="text"
                   className={`w-full p-4 rounded-2xl border ${errors.street ? 'border-red-500' : 'border-black/40 dark:border-white/50'} bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-gray-600 dark:placeholder:text-slate-300 focus:ring-2 focus:ring-[#D4820A] outline-none transition-colors text-base font-bold`}
-                  placeholder="Street name or locality"
+                  placeholder={t('street_placeholder')}
                   value={formData.street}
                   onChange={e => {
                     setFormData({...formData, street: e.target.value});
@@ -609,12 +719,12 @@ export default function Checkout() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="relative">
-                  <label className="block text-sm font-bold mb-2 dark:text-white">City</label>
+                  <label className="block text-sm font-bold mb-2 dark:text-white">{t('city')}</label>
                   <input 
                     name="city"
                     type="text"
                     className={`w-full p-4 rounded-2xl border ${errors.city ? 'border-red-500' : 'border-black/40 dark:border-white/50'} bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-gray-600 dark:placeholder:text-slate-300 focus:ring-2 focus:ring-[#D4820A] outline-none transition-colors text-base font-bold`}
-                    placeholder="City"
+                    placeholder={t('city')}
                     value={formData.city}
                     onChange={e => {
                       setFormData({...formData, city: e.target.value});
@@ -624,12 +734,12 @@ export default function Checkout() {
                   {errors.city && <div className="absolute left-0 -bottom-5 text-[10px] text-red-500 font-bold">{errors.city}</div>}
                 </div>
                 <div className="relative">
-                  <label className="block text-sm font-bold mb-2 dark:text-white">District</label>
+                  <label className="block text-sm font-bold mb-2 dark:text-white">{t('district')}</label>
                   <input 
                     name="district"
                     type="text"
                     className={`w-full p-4 rounded-2xl border ${errors.district ? 'border-red-500' : 'border-black/40 dark:border-white/50'} bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-gray-600 dark:placeholder:text-slate-300 focus:ring-2 focus:ring-[#D4820A] outline-none transition-colors text-base font-bold`}
-                    placeholder="District"
+                    placeholder={t('district')}
                     value={formData.district}
                     onChange={e => {
                       setFormData({...formData, district: e.target.value});
@@ -642,12 +752,12 @@ export default function Checkout() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="relative">
-                  <label className="block text-sm font-bold mb-2 dark:text-white">State</label>
+                  <label className="block text-sm font-bold mb-2 dark:text-white">{t('state')}</label>
                   <input 
                     name="state"
                     type="text"
                     className={`w-full p-4 rounded-2xl border ${errors.state ? 'border-red-500' : 'border-black/40 dark:border-white/50'} bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-gray-600 dark:placeholder:text-slate-300 focus:ring-2 focus:ring-[#D4820A] outline-none transition-colors text-base font-bold`}
-                    placeholder="State"
+                    placeholder={t('state')}
                     value={formData.state}
                     onChange={e => {
                       setFormData({...formData, state: e.target.value});
@@ -657,7 +767,7 @@ export default function Checkout() {
                   {errors.state && <div className="absolute left-0 -bottom-5 text-[10px] text-red-500 font-bold">{errors.state}</div>}
                 </div>
                 <div className="relative">
-                  <label className="block text-sm font-bold mb-2 dark:text-white">Pincode</label>
+                  <label className="block text-sm font-bold mb-2 dark:text-white">{t('pincode')}</label>
                   <input 
                     name="pincode"
                     type="text"
@@ -674,12 +784,12 @@ export default function Checkout() {
               </div>
 
               <div className="relative">
-                <label className="block text-sm font-bold mb-2 dark:text-white">Mobile Number</label>
+                <label className="block text-sm font-bold mb-2 dark:text-white">{t('mobile_number')}</label>
                 <input 
                   name="phone"
                   type="tel"
                   className={`w-full p-4 rounded-2xl border ${errors.phone ? 'border-red-500' : 'border-black/40 dark:border-white/50'} bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-gray-600 dark:placeholder:text-slate-300 focus:ring-2 focus:ring-[#D4820A] outline-none transition-colors text-base font-bold`}
-                  placeholder="10-digit mobile number"
+                  placeholder={t('mobile_placeholder')}
                   value={formData.phone}
                   onChange={e => {
                     setFormData({...formData, phone: e.target.value});
@@ -701,12 +811,12 @@ export default function Checkout() {
                     />
                     <CheckCircle2 className="absolute left-0.5 top-0.5 h-4 w-4 text-white opacity-0 peer-checked:opacity-100 transition-opacity" />
                   </div>
-                  <span className="text-sm font-bold dark:text-white">Save this address for future use</span>
+                  <span className="text-sm font-bold dark:text-white">{t('save_address_future')}</span>
                 </label>
 
                 {saveThisAddress && (
                   <div className="flex items-center space-x-2 animate-in fade-in slide-in-from-left-2">
-                    <span className="text-xs font-bold text-gray-500 dark:text-gray-400">Label as:</span>
+                    <span className="text-xs font-bold text-gray-500 dark:text-gray-400">{t('label_as')}</span>
                     {['Home', 'Work', 'Other'].map(l => (
                       <button
                         key={l}
@@ -718,7 +828,7 @@ export default function Checkout() {
                           : 'bg-white dark:bg-slate-700 text-gray-600 dark:text-gray-300 border border-black/10 dark:border-white/10'
                         }`}
                       >
-                        {l}
+                        {t(l.toLowerCase())}
                       </button>
                     ))}
                   </div>
@@ -729,8 +839,57 @@ export default function Checkout() {
 
           <section className="space-y-4">
             <div className="flex items-center space-x-2 font-bold text-xl">
+              <Clock className="w-6 h-6 text-[#D4820A]" />
+              <h2 className="dark:text-white">{t('choose_delivery_slot')}</h2>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <button
+                type="button"
+                onClick={() => setFormData({ ...formData, delivery_slot: 'Morning (8am – 12pm)' })}
+                className={`p-6 rounded-3xl border-2 text-left transition-all ${
+                  formData.delivery_slot === 'Morning (8am – 12pm)'
+                    ? 'border-[#D4820A] bg-[#D4820A]/5 ring-4 ring-[#D4820A]/10'
+                    : 'border-black/5 dark:border-white/10 bg-white dark:bg-slate-800 hover:border-[#D4820A]/50'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-2xl">🌅</span>
+                  {formData.delivery_slot === 'Morning (8am – 12pm)' && (
+                    <CheckCircle2 className="w-5 h-5 text-[#D4820A]" />
+                  )}
+                </div>
+                <h3 className="font-bold text-lg dark:text-white">{t('morning')}</h3>
+                <p className="text-sm text-gray-500 dark:text-slate-400">{t('morning_slot')}</p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setFormData({ ...formData, delivery_slot: 'Evening (4pm – 8pm)' })}
+                className={`p-6 rounded-3xl border-2 text-left transition-all ${
+                  formData.delivery_slot === 'Evening (4pm – 8pm)'
+                    ? 'border-[#D4820A] bg-[#D4820A]/5 ring-4 ring-[#D4820A]/10'
+                    : 'border-black/5 dark:border-white/10 bg-white dark:bg-slate-800 hover:border-[#D4820A]/50'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-2xl">🌇</span>
+                  {formData.delivery_slot === 'Evening (4pm – 8pm)' && (
+                    <CheckCircle2 className="w-5 h-5 text-[#D4820A]" />
+                  )}
+                </div>
+                <h3 className="font-bold text-lg dark:text-white">{t('evening')}</h3>
+                <p className="text-sm text-gray-500 dark:text-slate-400">{t('evening_slot')}</p>
+              </button>
+            </div>
+            {errors.delivery_slot && (
+              <p className="text-xs text-red-500 font-bold mt-1">{errors.delivery_slot}</p>
+            )}
+          </section>
+
+          <section className="space-y-4">
+            <div className="flex items-center space-x-2 font-bold text-xl">
               <CreditCard className="w-6 h-6 text-[#D4820A]" />
-              <h2 className="dark:text-white">Payment Method</h2>
+              <h2 className="dark:text-white">{t('payment_method')}</h2>
             </div>
             <div className="space-y-3">
               <label className={`flex items-center p-4 rounded-2xl border cursor-pointer transition-all ${formData.paymentMethod === 'cod' ? 'border-[#D4820A] bg-[#D4820A]/5' : 'border-black/10 dark:border-white/20 dark:bg-slate-800'}`}>
@@ -744,7 +903,7 @@ export default function Checkout() {
                 <div className={`w-5 h-5 rounded-full border-2 mr-3 flex items-center justify-center ${formData.paymentMethod === 'cod' ? 'border-[#D4820A]' : 'border-gray-300 dark:border-slate-500'}`}>
                   {formData.paymentMethod === 'cod' && <div className="w-2.5 h-2.5 bg-[#D4820A] rounded-full" />}
                 </div>
-                <span className="font-bold dark:text-white">Cash on Delivery</span>
+                <span className="font-bold dark:text-white">{t('cod')}</span>
               </label>
               <label className={`flex items-center p-4 rounded-2xl border cursor-pointer transition-all ${formData.paymentMethod === 'online' ? 'border-[#D4820A] bg-[#D4820A]/5' : 'border-black/10 dark:border-white/20 dark:bg-slate-800'}`}>
                 <input 
@@ -757,7 +916,7 @@ export default function Checkout() {
                 <div className={`w-5 h-5 rounded-full border-2 mr-3 flex items-center justify-center ${formData.paymentMethod === 'online' ? 'border-[#D4820A]' : 'border-gray-300 dark:border-slate-500'}`}>
                   {formData.paymentMethod === 'online' && <div className="w-2.5 h-2.5 bg-[#D4820A] rounded-full" />}
                 </div>
-                <span className="font-bold dark:text-white">Online Payment (Razorpay)</span>
+                <span className="font-bold dark:text-white">{t('online_payment_razorpay')}</span>
               </label>
             </div>
           </section>
@@ -765,19 +924,141 @@ export default function Checkout() {
 
         <div className="space-y-6">
           <div className="bg-white dark:bg-slate-800 p-8 rounded-3xl border border-black/10 dark:border-white/20 space-y-6 transition-colors">
-            <h2 className="text-2xl font-bold dark:text-white">Order Summary</h2>
+            <h2 className="text-2xl font-bold dark:text-white">{t('order_summary')}</h2>
             <div className="space-y-3">
               {items.map(item => (
                 <div key={item.id} className="flex justify-between text-sm">
                   <span className="text-gray-700 dark:text-white">{item.name} x {item.quantity}</span>
-                  <span className="font-bold dark:text-white">₹{item.price * item.quantity}</span>
+                  <span className="font-bold dark:text-white">{formatCurrency(item.price * item.quantity)}</span>
                 </div>
               ))}
+              {currentZone && (
+                <div className="flex justify-between text-sm text-gray-500 dark:text-gray-400">
+                  <span>{t('delivery_fee_with_zone').replace('{zone}', currentZone.name)}</span>
+                  <span className="font-bold">{formatCurrency(currentZone.delivery_fee)}</span>
+                </div>
+              )}
             </div>
-            <div className="pt-4 border-t border-black/10 dark:border-white/20 flex justify-between text-xl font-bold">
-              <span className="dark:text-white">Total</span>
-              <span className="text-[#D4820A]">₹{total}</span>
+
+            {/* Wallet Section */}
+            {user && (
+              <div className="py-4 border-t border-black/10 dark:border-white/20 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <Wallet className="w-5 h-5 text-[#D4820A]" />
+                    <h3 className="text-sm font-bold dark:text-white">{t('wallet_balance')}</h3>
+                  </div>
+                  <span className="text-sm font-bold text-[#D4820A]">{formatCurrency(user.wallet_balance || 0)}</span>
+                </div>
+                
+                {(user.wallet_balance || 0) > 0 ? (
+                  <label className={`flex items-center justify-between p-4 rounded-2xl border cursor-pointer transition-all ${useWallet ? 'border-[#D4820A] bg-[#D4820A]/5' : 'border-black/5 dark:border-white/10 bg-gray-50 dark:bg-slate-900/50'}`}>
+                    <div className="flex items-center space-x-3">
+                      <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${useWallet ? 'border-[#D4820A] bg-[#D4820A]' : 'border-gray-300 dark:border-slate-600'}`}>
+                        {useWallet && <CheckCircle2 className="w-3.5 h-3.5 text-white" />}
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold dark:text-white">{t('use_wallet_money')}</p>
+                        <p className="text-[10px] text-gray-500 dark:text-slate-400">{t('apply_balance_order')}</p>
+                      </div>
+                    </div>
+                    <input 
+                      type="checkbox" 
+                      className="hidden" 
+                      checked={useWallet}
+                      onChange={() => setUseWallet(!useWallet)}
+                    />
+                    {useWallet && (
+                      <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">
+                        -{formatCurrency(Math.min(user.wallet_balance || 0, total + Number(currentZone?.delivery_fee || 0) - (appliedPromo?.discount_amount || 0)))}
+                      </span>
+                    )}
+                  </label>
+                ) : (
+                  <Link to="/profile" className="text-[10px] font-bold text-[#D4820A] hover:underline flex items-center space-x-1">
+                    <span>{t('add_money_profile')}</span>
+                    <ChevronRight className="w-3 h-3" />
+                  </Link>
+                )}
+              </div>
+            )}
+
+            {/* Promo Code Section */}
+            <div className="space-y-3 py-4 border-t border-black/10 dark:border-white/20">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold dark:text-white">{t('promo_code')}</h3>
+              </div>
+              
+              {!appliedPromo ? (
+                <div className="space-y-2">
+                  <div className="flex space-x-2">
+                    <input
+                      type="text"
+                      value={promoCode}
+                      onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
+                      placeholder={t('enter_promo_code')}
+                      className="flex-1 p-3 rounded-xl border border-black/10 dark:border-white/20 bg-gray-50 dark:bg-slate-900 text-sm font-bold outline-none focus:ring-2 focus:ring-[#D4820A] transition-all"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleApplyPromo}
+                      disabled={promoLoading || !promoCode.trim()}
+                      className="px-6 py-3 bg-[#D4820A] text-white rounded-xl font-bold text-sm hover:bg-[#B87008] transition-all disabled:opacity-50"
+                    >
+                      {promoLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : t('apply')}
+                    </button>
+                  </div>
+                  {promoError && (
+                    <p className="text-xs text-red-500 font-bold">❌ {promoError}</p>
+                  )}
+                </div>
+              ) : (
+                <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 p-3 rounded-xl flex items-center justify-between animate-in fade-in slide-in-from-top-2">
+                  <div className="flex items-center space-x-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                    <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400">
+                      {t('promo_applied_text').replace('{code}', appliedPromo.code).replace('{amount}', formatCurrency(appliedPromo.discount_amount))}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleRemovePromo}
+                    className="p-1 hover:bg-emerald-100 dark:hover:bg-emerald-800 rounded-full transition-colors"
+                  >
+                    <XCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                  </button>
+                </div>
+              )}
             </div>
+
+            <div className="pt-4 border-t border-black/10 dark:border-white/20 space-y-2">
+              <div className="flex justify-between text-xl font-bold">
+                <span className="dark:text-white">{t('total')}</span>
+                <div className="text-right">
+                  {(appliedPromo || (useWallet && (user?.wallet_balance || 0) > 0)) && (
+                    <div className="text-sm text-gray-500 line-through mb-1">
+                      {formatCurrency(total + Number(currentZone?.delivery_fee || 0))}
+                    </div>
+                  )}
+                  <div className={`text-[#D4820A] ${(appliedPromo || useWallet) ? 'text-emerald-600 dark:text-emerald-400' : ''}`}>
+                    {formatCurrency(Math.max(0, total + Number(currentZone?.delivery_fee || 0) - (appliedPromo?.discount_amount || 0) - (useWallet ? Math.min(user?.wallet_balance || 0, total + Number(currentZone?.delivery_fee || 0) - (appliedPromo?.discount_amount || 0)) : 0)))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {currentZone && total < currentZone.min_order_amount && (
+              <div className="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl text-amber-700 dark:text-amber-400 text-xs font-bold">
+                ⚠️ {t('min_order_error_prefix')} {currentZone.name} {t('min_order_error_middle')} {currentZone.min_order_amount}. 
+                {t('min_order_error_suffix_prefix')} {currentZone.min_order_amount - total} {t('min_order_error_suffix_suffix')}
+              </div>
+            )}
+
+            {!currentZone && formData.pincode && formData.pincode.length === 6 && (
+              <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl text-red-700 dark:text-red-400 text-xs font-bold">
+                {t('no_delivery_pincode_prefix')} {formData.pincode} {t('no_delivery_pincode_suffix')}
+              </div>
+            )}
 
             {submitError && (
               <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-2xl text-red-600 dark:text-red-400 text-sm font-bold animate-in fade-in slide-in-from-top-2">
@@ -791,7 +1072,7 @@ export default function Checkout() {
                       }}
                       className="text-left underline hover:text-red-700"
                     >
-                      Logout now
+                      {t('logout_now')}
                     </button>
                   )}
                 </div>
@@ -800,11 +1081,11 @@ export default function Checkout() {
 
             <button 
               type="submit"
-              disabled={loading}
+              disabled={loading || (currentZone && total < currentZone.min_order_amount)}
               className="w-full bg-[#D4820A] text-white py-4 rounded-2xl font-bold text-lg flex items-center justify-center space-x-2 hover:bg-[#B87008] transition-all disabled:opacity-50"
             >
               <ShieldCheck className="w-6 h-6" />
-              <span>{loading ? 'Placing Order...' : 'Place Order Securely'}</span>
+              <span>{loading ? t('placing_order') : t('place_order_securely')}</span>
             </button>
           </div>
         </div>

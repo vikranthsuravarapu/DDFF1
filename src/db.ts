@@ -5,13 +5,19 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: {
     rejectUnauthorized: false
-  }
+  },
+  connectionTimeoutMillis: 5000, // 5 seconds timeout
+  idleTimeoutMillis: 30000,
+  max: 20
 });
 
 // Initialize Database Schema
 const initDb = async () => {
-  const client = await pool.connect();
+  console.log('[DB] Connecting to pool...');
+  let client;
   try {
+    client = await pool.connect();
+    console.log('[DB] Connected successfully');
     await client.query('BEGIN');
     
     await client.query(`
@@ -23,8 +29,17 @@ const initDb = async () => {
         google_id TEXT UNIQUE,
         phone TEXT,
         role TEXT DEFAULT 'customer',
+        is_verified BOOLEAN DEFAULT false,
+        verification_token TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS wallet_balance DECIMAL(10,2) DEFAULT 0;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code TEXT UNIQUE;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by INTEGER REFERENCES users(id);
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT false;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_token TEXT;
 
       CREATE TABLE IF NOT EXISTS categories (
         id SERIAL PRIMARY KEY,
@@ -39,8 +54,17 @@ const initDb = async () => {
         location TEXT NOT NULL,
         bio TEXT,
         image_url TEXT,
+        story TEXT,
+        farming_since INTEGER,
+        speciality TEXT,
+        video_url TEXT,
         joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+
+      ALTER TABLE farmers ADD COLUMN IF NOT EXISTS story TEXT;
+      ALTER TABLE farmers ADD COLUMN IF NOT EXISTS farming_since INTEGER;
+      ALTER TABLE farmers ADD COLUMN IF NOT EXISTS speciality TEXT;
+      ALTER TABLE farmers ADD COLUMN IF NOT EXISTS video_url TEXT;
 
       CREATE TABLE IF NOT EXISTS products (
         id SERIAL PRIMARY KEY,
@@ -70,6 +94,9 @@ const initDb = async () => {
       CREATE INDEX IF NOT EXISTS idx_products_best_seller ON products(is_best_seller) WHERE is_best_seller = true;
       CREATE INDEX IF NOT EXISTS idx_products_rating ON products(rating);
 
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS sale_price DECIMAL(10,2) DEFAULT NULL;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS sale_ends_at TIMESTAMP DEFAULT NULL;
+
       CREATE TABLE IF NOT EXISTS promo_codes (
         id SERIAL PRIMARY KEY,
         code TEXT UNIQUE NOT NULL,
@@ -77,15 +104,24 @@ const initDb = async () => {
         discount_amount DECIMAL(10,2),
         min_order DECIMAL(10,2),
         expiry_date TIMESTAMP,
-        is_active BOOLEAN DEFAULT true
+        is_active BOOLEAN DEFAULT true,
+        max_uses INTEGER DEFAULT NULL,
+        used_count INTEGER DEFAULT 0,
+        product_id INTEGER REFERENCES products(id) DEFAULT NULL
       );
+
+      ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS max_uses INTEGER DEFAULT NULL;
+      ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS used_count INTEGER DEFAULT 0;
+      ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS product_id INTEGER REFERENCES products(id) DEFAULT NULL;
 
       CREATE TABLE IF NOT EXISTS orders (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id),
         total_amount DECIMAL(10,2) NOT NULL,
         discount_amount DECIMAL(10,2) DEFAULT 0,
+        delivery_fee DECIMAL(10,2) DEFAULT 0,
         final_amount DECIMAL(10,2) NOT NULL,
+        promo_code TEXT,
         status TEXT DEFAULT 'processing',
         payment_method TEXT,
         payment_status TEXT DEFAULT 'pending',
@@ -99,8 +135,23 @@ const initDb = async () => {
         pincode TEXT,
         phone TEXT,
         delivery_boy_id INTEGER REFERENCES users(id),
+        delivery_slot TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS phone TEXT;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_slot TEXT;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS proof_of_delivery_image TEXT;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_fee DECIMAL(10,2) DEFAULT 0;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS promo_code TEXT;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS wallet_amount_used DECIMAL(10,2) DEFAULT 0;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS cancellation_reason TEXT DEFAULT NULL;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS razorpay_payment_id TEXT DEFAULT NULL;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS refund_id TEXT DEFAULT NULL;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS refund_method VARCHAR(20) DEFAULT NULL;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS refund_status VARCHAR(20) DEFAULT NULL;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS refund_amount DECIMAL(10,2) DEFAULT NULL;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS refunded_at TIMESTAMP DEFAULT NULL;
 
       CREATE TABLE IF NOT EXISTS order_items (
         id SERIAL PRIMARY KEY,
@@ -152,11 +203,62 @@ const initDb = async () => {
         is_default BOOLEAN DEFAULT false,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+
+      CREATE TABLE IF NOT EXISTS delivery_zones (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        pincode TEXT NOT NULL,
+        min_order_amount DECIMAL(10,2) DEFAULT 0,
+        delivery_fee DECIMAL(10,2) DEFAULT 0,
+        is_active BOOLEAN DEFAULT true,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS refunds (
+        id SERIAL PRIMARY KEY,
+        order_id INTEGER REFERENCES orders(id),
+        user_id INTEGER REFERENCES users(id),
+        amount DECIMAL(10,2) NOT NULL,
+        method VARCHAR(20) NOT NULL,
+        razorpay_refund_id TEXT DEFAULT NULL,
+        status VARCHAR(20) DEFAULT 'pending',
+        failure_reason TEXT DEFAULT NULL,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS wallet_transactions (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id),
+        amount DECIMAL(10,2) NOT NULL,
+        type VARCHAR(10) NOT NULL, -- 'credit' or 'debit'
+        description TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS referral_rewards (
+        id SERIAL PRIMARY KEY,
+        referrer_id INTEGER REFERENCES users(id),
+        referred_id INTEGER REFERENCES users(id),
+        reward_amount DECIMAL(10,2) NOT NULL,
+        status TEXT DEFAULT 'pending', -- 'pending' or 'credited'
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS stock_alerts (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id),
+        product_id INTEGER REFERENCES products(id),
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(user_id, product_id)
+      );
     `);
 
     // Seed Data
     const userCount = await client.query('SELECT COUNT(*) as count FROM users');
     if (parseInt(userCount.rows[0].count) === 0) {
+      // ... existing seed code ...
+      // (I'll just add the delivery zones seed at the end of the if block)
       // Admin: Admin@123
       await client.query('INSERT INTO users (name, email, password, role) VALUES ($1, $2, $3, $4)', [
         'Admin', 'admin@ddff.com', '$2b$10$Qd5BrAyShWuOPF60HiXrY.lqOJWcdYq/TNjetNwXvFXLFxxjSwgui', 'admin'
@@ -291,18 +393,34 @@ const initDb = async () => {
         `, [p.category_id, p.farmer_id, p.name, p.description, p.price, p.original_price, p.unit, p.stock, p.origin, p.is_featured, p.is_best_seller, p.image_url]);
       }
 
-      await client.query('INSERT INTO promo_codes (code, discount_percent, min_order) VALUES ($1, $2, $3)', ['VILLAGE20', 20, 300]);
-      await client.query('INSERT INTO promo_codes (code, discount_amount, min_order) VALUES ($1, $2, $3)', ['FREESHIP', 0, 0]);
-      await client.query('INSERT INTO promo_codes (code, discount_amount, min_order) VALUES ($1, $2, $3)', ['HONEY50', 50, 400]);
+      await client.query('INSERT INTO promo_codes (code, discount_percent, min_order, max_uses) VALUES ($1, $2, $3, $4)', ['VILLAGE20', 20, 300, 100]);
+      await client.query('INSERT INTO promo_codes (code, discount_amount, min_order, max_uses) VALUES ($1, $2, $3, $4)', ['FREESHIP', 0, 0, 500]);
+      await client.query('INSERT INTO promo_codes (code, discount_amount, min_order, max_uses) VALUES ($1, $2, $3, $4)', ['HONEY50', 50, 400, 10]);
+
+      const deliveryZones = [
+        { name: 'Guntur', pincode: '522001', min_order_amount: 300, delivery_fee: 30 },
+        { name: 'Vijayawada', pincode: '520001', min_order_amount: 500, delivery_fee: 50 },
+        { name: 'Tenali', pincode: '522201', min_order_amount: 200, delivery_fee: 20 },
+        { name: 'Mangalagiri', pincode: '522503', min_order_amount: 400, delivery_fee: 40 },
+        { name: 'Amaravati', pincode: '522020', min_order_amount: 600, delivery_fee: 60 }
+      ];
+
+      for (const zone of deliveryZones) {
+        await client.query(
+          'INSERT INTO delivery_zones (name, pincode, min_order_amount, delivery_fee) VALUES ($1, $2, $3, $4)',
+          [zone.name, zone.pincode, zone.min_order_amount, zone.delivery_fee]
+        );
+      }
     }
     
     await client.query('COMMIT');
     console.log('Database initialized successfully');
   } catch (e) {
-    await client.query('ROLLBACK');
+    if (client) await client.query('ROLLBACK');
     console.error('Database initialization error:', e);
+    throw e; // Rethrow to let the caller know it failed
   } finally {
-    client.release();
+    if (client) client.release();
   }
 };
 

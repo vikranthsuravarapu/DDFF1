@@ -1,13 +1,20 @@
-import React, { useState, useEffect } from 'react';
-import { Package, MapPin, Phone, Truck, CheckCircle2, Clock, ChevronRight, LogOut } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Package, MapPin, Phone, Truck, CheckCircle2, Clock, ChevronRight, LogOut, Camera, X, Loader2, Upload } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'motion/react';
 
 export default function DeliveryDashboard() {
   const { user, token, logout } = useAuth();
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState<number | null>(null);
+  const [showPodModal, setShowPodModal] = useState(false);
+  const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
+  const [podImage, setPodImage] = useState<File | null>(null);
+  const [podPreview, setPodPreview] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
 
   const fetchOrders = async () => {
@@ -47,6 +54,52 @@ export default function DeliveryDashboard() {
       console.error('Failed to update status:', e);
     } finally {
       setUpdating(null);
+    }
+  };
+
+  const handlePodFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setPodImage(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setPodPreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const submitPod = async () => {
+    if (!selectedOrderId || !podImage) return;
+    
+    setUploading(true);
+    const formData = new FormData();
+    formData.append('proof', podImage);
+
+    try {
+      const res = await fetch(`/api/delivery/orders/${selectedOrderId}/proof`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
+      });
+
+      if (res.ok) {
+        setShowPodModal(false);
+        setSelectedOrderId(null);
+        setPodImage(null);
+        setPodPreview(null);
+        fetchOrders();
+      } else {
+        const error = await res.json();
+        alert(error.error || 'Failed to upload proof');
+      }
+    } catch (e) {
+      console.error('Failed to upload POD:', e);
+      alert('Network error. Please try again.');
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -94,13 +147,20 @@ export default function DeliveryDashboard() {
               <div className="p-6 space-y-4">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">#DDFF-{order.id.toString().padStart(4, '0')}</span>
-                  <span className={`text-[10px] font-bold px-2 py-1 rounded-lg uppercase ${
-                    order.status === 'delivered' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
-                    order.status === 'shipped' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' :
-                    'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
-                  }`}>
-                    {order.status}
-                  </span>
+                  <div className="flex items-center space-x-2">
+                    {order.delivery_slot && (
+                      <span className="text-[10px] font-bold px-2 py-1 rounded-lg uppercase bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">
+                        {order.delivery_slot}
+                      </span>
+                    )}
+                    <span className={`text-[10px] font-bold px-2 py-1 rounded-lg uppercase ${
+                      order.status === 'delivered' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
+                      order.status === 'shipped' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' :
+                      'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                    }`}>
+                      {order.status}
+                    </span>
+                  </div>
                 </div>
 
                 <div className="space-y-3">
@@ -111,14 +171,26 @@ export default function DeliveryDashboard() {
                       <p className="text-sm text-gray-500 dark:text-slate-400 leading-relaxed">
                         {order.house_no}, {order.street}, {order.city}, {order.pincode}
                       </p>
+                      <a 
+                        href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${order.house_no}, ${order.street}, ${order.city}, ${order.pincode}`)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center space-x-1 text-xs font-bold text-[#D4820A] hover:underline mt-1"
+                      >
+                        <MapPin className="w-3 h-3" />
+                        <span>Open in Maps</span>
+                      </a>
                     </div>
                   </div>
 
                   <div className="flex items-center space-x-3">
                     <Phone className="w-5 h-5 text-emerald-500 flex-shrink-0" />
-                    <a href={`tel:${order.user_phone}`} className="text-emerald-600 dark:text-emerald-400 font-bold hover:underline">
-                      {order.user_phone}
-                    </a>
+                    <div className="flex flex-col">
+                      <span className="text-[10px] uppercase font-bold text-gray-400">Customer Phone</span>
+                      <a href={`tel:${order.phone || order.user_phone}`} className="text-emerald-600 dark:text-emerald-400 font-bold hover:underline">
+                        {order.phone || order.user_phone || 'Not provided'}
+                      </a>
+                    </div>
                   </div>
                 </div>
 
@@ -132,6 +204,13 @@ export default function DeliveryDashboard() {
               </div>
 
               <div className="bg-gray-50 dark:bg-slate-900/50 p-4 flex gap-3">
+                <a 
+                  href={`tel:${order.phone || order.user_phone}`}
+                  className="p-3 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-2xl flex items-center justify-center hover:bg-emerald-200 transition-all"
+                  title="Call Customer"
+                >
+                  <Phone className="w-5 h-5" />
+                </a>
                 {order.status === 'confirmed' && (
                   <button 
                     onClick={() => updateStatus(order.id, 'shipped')}
@@ -144,7 +223,10 @@ export default function DeliveryDashboard() {
                 )}
                 {order.status === 'shipped' && (
                   <button 
-                    onClick={() => updateStatus(order.id, 'delivered')}
+                    onClick={() => {
+                      setSelectedOrderId(order.id);
+                      setShowPodModal(true);
+                    }}
                     disabled={updating === order.id}
                     className="flex-grow bg-emerald-600 text-white py-3 rounded-2xl font-bold text-sm flex items-center justify-center space-x-2 hover:bg-emerald-700 transition-all disabled:opacity-50"
                   >
@@ -163,6 +245,91 @@ export default function DeliveryDashboard() {
           ))
         )}
       </div>
+
+      <AnimatePresence>
+        {showPodModal && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, y: 100 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 100 }}
+              className="bg-white dark:bg-slate-800 w-full max-w-md rounded-t-[2.5rem] sm:rounded-[2.5rem] overflow-hidden shadow-2xl"
+            >
+              <div className="p-8 space-y-6">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-2xl font-bold text-gray-900 dark:text-slate-100">Proof of Delivery</h3>
+                  <button 
+                    onClick={() => {
+                      setShowPodModal(false);
+                      setPodImage(null);
+                      setPodPreview(null);
+                    }}
+                    className="p-2 bg-gray-100 dark:bg-slate-700 rounded-full text-gray-500 dark:text-slate-400"
+                  >
+                    <X className="w-6 h-6" />
+                  </button>
+                </div>
+
+                <p className="text-gray-500 dark:text-slate-400">
+                  Please capture or upload a photo of the delivered package as proof.
+                </p>
+
+                <div 
+                  onClick={() => fileInputRef.current?.click()}
+                  className={`relative aspect-video rounded-3xl border-2 border-dashed flex flex-col items-center justify-center cursor-pointer transition-all overflow-hidden ${
+                    podPreview ? 'border-emerald-500' : 'border-gray-200 dark:border-slate-700 hover:border-[#D4820A]'
+                  }`}
+                >
+                  {podPreview ? (
+                    <>
+                      <img src={podPreview} alt="POD Preview" className="w-full h-full object-cover" />
+                      <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
+                        <Camera className="w-10 h-10 text-white" />
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-center space-y-3 p-6">
+                      <div className="w-16 h-16 bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center mx-auto">
+                        <Camera className="w-8 h-8 text-[#D4820A]" />
+                      </div>
+                      <div>
+                        <p className="font-bold text-gray-900 dark:text-slate-100">Take a Photo</p>
+                        <p className="text-xs text-gray-500 dark:text-slate-400">or tap to upload from gallery</p>
+                      </div>
+                    </div>
+                  )}
+                  <input 
+                    type="file" 
+                    ref={fileInputRef}
+                    onChange={handlePodFileChange}
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                  />
+                </div>
+
+                <button
+                  onClick={submitPod}
+                  disabled={!podImage || uploading}
+                  className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-bold text-lg flex items-center justify-center space-x-3 hover:bg-emerald-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-emerald-200 dark:shadow-none"
+                >
+                  {uploading ? (
+                    <>
+                      <Loader2 className="w-6 h-6 animate-spin" />
+                      <span>Uploading...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-6 h-6" />
+                      <span>Complete Delivery</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

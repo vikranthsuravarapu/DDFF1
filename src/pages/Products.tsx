@@ -1,14 +1,30 @@
 import { useState, useEffect, useRef } from 'react';
-import { useSearchParams, Link } from 'react-router-dom';
-import { Search, Filter, Camera, Loader2, X, Sparkles } from 'lucide-react';
+import { useSearchParams, Link, useNavigate } from 'react-router-dom';
+import { Search, Filter, Camera, Loader2, X, Sparkles, Plus } from 'lucide-react';
 import ProductCard from '../components/ProductCard';
+import MiniCart from '../components/MiniCart';
+import ComingSoon from '../components/ComingSoon';
+import { useCart } from '../contexts/CartContext';
+import { useAuth } from '../contexts/AuthContext';
 import { identifyImage } from '../services/geminiService';
+import { formatCurrency } from '../utils/format';
+import { motion, AnimatePresence } from 'motion/react';
 
 export default function Products() {
   const [searchParams] = useSearchParams();
+  const { itemCount } = useCart();
+  const { isDeliveryAvailable, isCheckingDelivery, user } = useAuth();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (user?.role === 'delivery_boy') {
+      navigate('/delivery');
+    }
+  }, [user, navigate]);
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [farmers, setFarmers] = useState([]);
+  const [activePromos, setActivePromos] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -17,6 +33,7 @@ export default function Products() {
   const [priceRange, setPriceRange] = useState({ min: 0, max: 2000 });
   const [selectedFarmer, setSelectedFarmer] = useState('');
   const [minRating, setMinRating] = useState(0);
+  const [showFilters, setShowFilters] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const categoryFilter = searchParams.get('category');
@@ -61,6 +78,21 @@ export default function Products() {
     fetchData();
   }, [categoryFilter, priceRange, selectedFarmer, minRating]);
 
+  useEffect(() => {
+    const fetchPromos = async () => {
+      try {
+        const res = await fetch('/api/promo-codes/active');
+        if (res.ok) {
+          const data = await res.json();
+          setActivePromos(Array.isArray(data) ? data : []);
+        }
+      } catch (err) {
+        console.error('Error fetching active promos:', err);
+      }
+    };
+    fetchPromos();
+  }, []);
+
   const filteredProducts = products.filter((p: any) => 
     p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     (p.origin && p.origin.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -88,6 +120,18 @@ export default function Products() {
     };
     reader.readAsDataURL(file);
   };
+
+  if (isCheckingDelivery) {
+    return (
+      <div className="min-h-[70vh] flex items-center justify-center">
+        <Loader2 className="w-12 h-12 text-[#D4820A] animate-spin" />
+      </div>
+    );
+  }
+
+  if (!isDeliveryAvailable) {
+    return <ComingSoon />;
+  }
 
   return (
     <div className="space-y-8">
@@ -147,129 +191,203 @@ export default function Products() {
         </div>
       )}
 
-      <div className="flex flex-col md:flex-row gap-8">
-        {/* Sidebar Filters */}
-        <aside className="w-full md:w-64 space-y-6">
-          <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-black/5 dark:border-white/10 space-y-6 transition-colors">
-            <div className="flex items-center space-x-2 font-bold text-lg text-gray-900 dark:text-white">
-              <Filter className="w-5 h-5" />
-              <span>Filters</span>
-            </div>
-
-            {/* Price Range */}
-            <div className="space-y-3">
-              <label className="text-sm font-bold text-gray-700 dark:text-white">Price Range (₹)</label>
-              <div className="flex items-center space-x-2">
-                <input 
-                  type="number" 
-                  placeholder="Min"
-                  className="w-full p-2 rounded-xl border border-black/5 dark:border-white/10 bg-gray-50 dark:bg-slate-900 text-sm text-slate-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-slate-500"
-                  value={priceRange.min}
-                  onChange={(e) => setPriceRange({ ...priceRange, min: Number(e.target.value) })}
-                />
-                <span className="text-gray-400 dark:text-slate-500">-</span>
-                <input 
-                  type="number" 
-                  placeholder="Max"
-                  className="w-full p-2 rounded-xl border border-black/5 dark:border-white/10 bg-gray-50 dark:bg-slate-900 text-sm text-slate-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-slate-500"
-                  value={priceRange.max}
-                  onChange={(e) => setPriceRange({ ...priceRange, max: Number(e.target.value) })}
-                />
+      <div className="flex flex-col lg:flex-row gap-4 items-start">
+        {/* Main Content Area (Filters + Grid) */}
+        <div className="flex-grow w-full min-w-0 space-y-6">
+          {/* Horizontal Filters Bar */}
+          <div className="bg-white/80 dark:bg-[#1a2233]/80 backdrop-blur-md p-2.5 px-4 rounded-2xl border border-black/5 dark:border-white/5 shadow-sm sticky top-24 z-30 transition-colors">
+            <div className="flex flex-wrap items-center gap-4 sm:gap-6">
+              <div className="flex items-center space-x-2 text-[#D4820A] font-bold">
+                <Filter className="w-4 h-4" />
+                <span className="text-sm">Filters</span>
               </div>
-            </div>
-
-            {/* Farmer Filter */}
-            <div className="space-y-3">
-              <label className="text-sm font-bold text-gray-700 dark:text-white">Farmer Origin</label>
-              <select 
-                className="w-full p-2 rounded-xl border border-black/5 dark:border-white/10 bg-gray-50 dark:bg-slate-900 text-sm text-slate-900 dark:text-slate-100"
-                value={selectedFarmer}
-                onChange={(e) => setSelectedFarmer(e.target.value)}
-              >
-                <option value="">All Farmers</option>
-                {farmers.map((f: any) => (
-                  <option key={f.id} value={f.id}>{f.name}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Rating Filter */}
-            <div className="space-y-3">
-              <label className="text-sm font-bold text-gray-700 dark:text-white">Minimum Rating</label>
-              <div className="flex items-center space-x-2">
-                {[1, 2, 3, 4, 5].map((star) => (
-                  <button
-                    key={star}
-                    onClick={() => setMinRating(star)}
-                    className={`text-xl transition-colors ${minRating >= star ? 'text-amber-400' : 'text-gray-300 dark:text-slate-600'}`}
+              
+              <div className="flex flex-wrap items-center gap-4 sm:gap-8 flex-grow">
+                {/* Category Dropdown */}
+                <div className="flex items-center space-x-2">
+                  <span className="text-xs font-bold text-gray-400">Category:</span>
+                  <select 
+                    className="bg-transparent text-xs font-bold text-gray-700 dark:text-slate-200 focus:outline-none cursor-pointer"
+                    value={categoryFilter || ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      navigate(val ? `/products?category=${val}` : '/products');
+                    }}
                   >
-                    ★
-                  </button>
-                ))}
-                {minRating > 0 && (
-                  <button onClick={() => setMinRating(0)} className="text-xs text-gray-400 dark:text-slate-500 hover:text-red-500">Clear</button>
-                )}
-              </div>
-            </div>
+                    <option value="">All Categories</option>
+                    {categories.map((cat: any) => (
+                      <option key={cat.id} value={cat.slug}>{cat.emoji} {cat.name}</option>
+                    ))}
+                  </select>
+                </div>
 
-            <div className="pt-4 border-t border-black/5 dark:border-white/10 space-y-4">
-              <div className="font-bold text-sm text-gray-700 dark:text-white">Categories</div>
-              <div className="space-y-2">
-                <Link 
-                  to="/products" 
-                  className={`block px-4 py-2 rounded-xl transition-colors text-sm font-medium ${!categoryFilter ? 'bg-[#D4820A] text-white' : 'text-gray-600 dark:text-slate-300 hover:bg-[#F0E6D3] dark:hover:bg-slate-700'}`}
-                >
-                  All Products
-                </Link>
-                {categories.map((cat: any) => (
-                  <Link 
-                    key={cat.id} 
-                    to={`/products?category=${cat.slug}`}
-                    className={`block px-4 py-2 rounded-xl transition-colors text-sm font-medium ${categoryFilter === cat.slug ? 'bg-[#D4820A] text-white' : 'text-gray-600 dark:text-slate-300 hover:bg-[#F0E6D3] dark:hover:bg-slate-700'}`}
+                {/* Price Filter */}
+                <div className="flex items-center space-x-2">
+                  <span className="text-xs font-bold text-gray-400">Price:</span>
+                  <select 
+                    className="bg-transparent text-xs font-bold text-gray-700 dark:text-slate-200 focus:outline-none cursor-pointer"
+                    value={`${priceRange.min}-${priceRange.max}`}
+                    onChange={(e) => {
+                      const [min, max] = e.target.value.split('-').map(Number);
+                      setPriceRange({ min, max });
+                    }}
                   >
-                    <span className="mr-2">{cat.emoji}</span>
-                    {cat.name}
-                  </Link>
-                ))}
+                    <option value="0-2000">Any Price</option>
+                    <option value="0-100">Under {formatCurrency(100)}</option>
+                    <option value="100-500">{formatCurrency(100)} - {formatCurrency(500)}</option>
+                    <option value="500-2000">Over {formatCurrency(500)}</option>
+                  </select>
+                </div>
+                
+                {/* Farmer Filter */}
+                <div className="flex items-center space-x-2">
+                  <span className="text-xs font-bold text-gray-400">Farmer:</span>
+                  <select 
+                    className="bg-transparent text-xs font-bold text-gray-700 dark:text-slate-200 focus:outline-none cursor-pointer max-w-[120px] truncate"
+                    value={selectedFarmer}
+                    onChange={(e) => setSelectedFarmer(e.target.value)}
+                  >
+                    <option value="">All Regions</option>
+                    {farmers.map((f: any) => (
+                      <option key={f.id} value={f.id}>{f.name}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
-            </div>
-          </div>
-        </aside>
 
-        {/* Product Grid */}
-        <div className="flex-grow">
-          {loading ? (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {[1, 2, 3, 4, 5, 6].map(i => (
-                <div key={i} className="bg-white dark:bg-slate-800 h-80 rounded-2xl animate-pulse border border-black/5 dark:border-white/10 transition-colors" />
-              ))}
-            </div>
-          ) : error ? (
-            <div className="text-center py-20 bg-white dark:bg-slate-800 rounded-3xl border border-red-100 dark:border-red-900/30 transition-colors space-y-4">
-              <div className="text-6xl mb-4">⚠️</div>
-              <h3 className="text-2xl font-bold text-red-600 dark:text-red-400">Oops! Something went wrong</h3>
-              <p className="text-gray-500 dark:text-slate-400 max-w-md mx-auto">{error}</p>
+              {/* More Filters Toggle */}
               <button 
-                onClick={fetchData}
-                className="bg-[#D4820A] text-white px-8 py-3 rounded-2xl font-bold hover:bg-[#B87008] transition-all shadow-lg shadow-[#D4820A]/20"
+                onClick={() => setShowFilters(!showFilters)}
+                className="p-1.5 bg-gray-100 dark:bg-slate-700 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-200 transition-colors"
+                title="More filters"
               >
-                Try Again
+                <Plus className={`w-4 h-4 transition-transform ${showFilters ? 'rotate-45' : ''}`} />
               </button>
             </div>
-          ) : filteredProducts.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {filteredProducts.map((product: any) => (
-                <ProductCard key={product.id} product={product} />
+
+            {/* Expanded Filters (Mobile or Detailed) */}
+            <AnimatePresence>
+              {showFilters && (
+                <motion.div 
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  className="overflow-hidden"
+                >
+                  <div className="pt-4 mt-4 border-t border-black/5 dark:border-white/10 grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-[10px] uppercase tracking-wider font-bold text-gray-400">Price Range</label>
+                      <div className="flex items-center space-x-2">
+                        <input 
+                          type="number" 
+                          className="w-full p-2 rounded-xl bg-gray-50 dark:bg-slate-900 border border-black/5 dark:border-white/10 text-xs"
+                          placeholder="Min"
+                          value={priceRange.min}
+                          onChange={(e) => setPriceRange({ ...priceRange, min: Number(e.target.value) })}
+                        />
+                        <input 
+                          type="number" 
+                          className="w-full p-2 rounded-xl bg-gray-50 dark:bg-slate-900 border border-black/5 dark:border-white/10 text-xs"
+                          placeholder="Max"
+                          value={priceRange.max}
+                          onChange={(e) => setPriceRange({ ...priceRange, max: Number(e.target.value) })}
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] uppercase tracking-wider font-bold text-gray-400">Minimum Rating</label>
+                      <div className="flex items-center space-x-1">
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <button
+                            key={star}
+                            onClick={() => setMinRating(star)}
+                            className={`text-lg ${minRating >= star ? 'text-amber-400' : 'text-gray-200 dark:text-slate-700'}`}
+                          >
+                            ★
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] uppercase tracking-wider font-bold text-gray-400">All Categories</label>
+                      <div className="flex flex-wrap gap-1">
+                        {categories.map((cat: any) => (
+                          <button
+                            key={cat.id}
+                            onClick={() => {}} // Handled by Link above, but for UI consistency
+                            className={`px-2 py-1 rounded-lg text-[10px] font-bold ${categoryFilter === cat.slug ? 'bg-[#D4820A] text-white' : 'bg-gray-100 dark:bg-slate-700 text-gray-500'}`}
+                          >
+                            {cat.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          {/* Active Promos Banner */}
+          {activePromos.length > 0 && (
+            <div className="flex overflow-x-auto gap-2 pb-2 no-scrollbar scroll-smooth">
+              {activePromos.map((promo) => (
+                <button
+                  key={promo.id}
+                  onClick={() => navigate('/offers')}
+                  className="flex-shrink-0 flex items-center gap-2 px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/30 text-amber-800 dark:text-amber-200 rounded-full text-sm font-medium hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors whitespace-nowrap shadow-sm"
+                >
+                  <span className="text-base">🏷️</span>
+                  <span>
+                    <span className="font-bold">[{promo.code}]</span> — {promo.description} on {promo.product_name || 'all orders'}
+                  </span>
+                </button>
               ))}
             </div>
-          ) : (
-            <div className="text-center py-20 bg-white dark:bg-slate-800 rounded-3xl border border-black/5 dark:border-white/10 transition-colors">
-              <div className="text-6xl mb-4">🔍</div>
-              <h3 className="text-2xl font-bold dark:text-white">No products found</h3>
-              <p className="text-gray-500 dark:text-slate-400">Try adjusting your search or category filters</p>
-            </div>
           )}
+
+          {/* Product Grid */}
+          <div className="min-h-[400px]">
+            {loading ? (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-6">
+                {[1, 2, 3, 4, 5, 6, 7, 8].map(i => (
+                  <div key={i} className="bg-white dark:bg-[#1a2233] h-56 sm:h-64 rounded-2xl sm:rounded-[1.5rem] animate-pulse border border-black/5 dark:border-white/5 transition-colors" />
+                ))}
+              </div>
+            ) : error ? (
+              <div className="text-center py-20 bg-white dark:bg-slate-800 rounded-3xl border border-red-100 dark:border-red-900/30 transition-colors space-y-4">
+                <div className="text-6xl mb-4">⚠️</div>
+                <h3 className="text-2xl font-bold text-red-600 dark:text-red-400">Oops! Something went wrong</h3>
+                <p className="text-gray-500 dark:text-slate-400 max-w-md mx-auto">{error}</p>
+                <button 
+                  onClick={fetchData}
+                  className="bg-[#D4820A] text-white px-8 py-3 rounded-2xl font-bold hover:bg-[#B87008] transition-all shadow-lg shadow-[#D4820A]/20"
+                >
+                  Try Again
+                </button>
+              </div>
+            ) : filteredProducts.length > 0 ? (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-6">
+                {filteredProducts.map((product: any) => (
+                  <ProductCard key={product.id} product={product} />
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-20 bg-white dark:bg-slate-800 rounded-3xl border border-black/5 dark:border-white/10 transition-colors">
+                <div className="text-6xl mb-4">🔍</div>
+                <h3 className="text-2xl font-bold dark:text-white">No products found</h3>
+                <p className="text-gray-500 dark:text-slate-400">Try adjusting your search or category filters</p>
+              </div>
+            )}
+          </div>
         </div>
+
+        {/* Sticky Cart Sidebar (Desktop) */}
+        <aside className="hidden md:block w-60 lg:w-64 flex-shrink-0 sticky top-24 self-start">
+          <div className="flex flex-col h-[calc(100vh-200px)] bg-white/80 dark:bg-slate-800/80 backdrop-blur-xl rounded-[32px] border border-black/5 dark:border-white/10 overflow-hidden shadow-2xl shadow-black/5 transition-all hover:shadow-black/10">
+            <MiniCart />
+          </div>
+        </aside>
       </div>
     </div>
   );

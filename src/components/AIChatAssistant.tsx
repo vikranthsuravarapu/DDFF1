@@ -105,9 +105,9 @@ export default function AIChatAssistant() {
       {/* Floating Button */}
       <button
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-6 right-6 bg-[#D4820A] text-white p-4 rounded-full shadow-2xl hover:scale-110 transition-all z-40 group"
+        className="fixed bottom-6 right-6 bg-[#D4820A] text-white p-3.5 rounded-full shadow-2xl hover:scale-110 transition-all z-[100] group ring-4 ring-white dark:ring-slate-900"
       >
-        <Sparkles className="w-6 h-6 group-hover:animate-pulse" />
+        <Sparkles className="w-5 h-5 group-hover:animate-pulse" />
       </button>
 
       {/* Chat Window */}
@@ -117,7 +117,7 @@ export default function AIChatAssistant() {
             initial={{ opacity: 0, y: 100, scale: 0.8 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 100, scale: 0.8 }}
-            className="fixed bottom-24 right-6 w-80 md:w-96 h-[500px] bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border border-black/5 dark:border-white/10 flex flex-col overflow-hidden z-50 transition-colors"
+            className="fixed bottom-20 right-6 left-6 md:left-auto w-auto md:w-80 h-[450px] bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border border-black/5 dark:border-white/10 flex flex-col overflow-hidden z-[120] transition-colors"
           >
             {/* Header */}
             <div className="p-4 bg-[#D4820A] text-white flex items-center justify-between">

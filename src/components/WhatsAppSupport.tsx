@@ -9,7 +9,7 @@ export default function WhatsAppSupport() {
     return null;
   }
 
-  const message = encodeURIComponent("Hi! I need help with my Grama Ruchulu order.");
+  const message = encodeURIComponent("Hi! I need help with my DDFF order.");
   const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${message}`;
 
   return (

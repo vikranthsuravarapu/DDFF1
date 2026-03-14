@@ -1,0 +1,57 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="sunGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#F27D26;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#D4820A;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <!-- Main Background -->
+  <rect x="50" y="50" width="412" height="412" rx="80" fill="#D4820A" />
+  
+  <!-- Sun/Atmosphere -->
+  <circle cx="256" cy="230" r="140" fill="url(#sunGrad)" opacity="0.6" />
+  
+  <!-- Horizon Lines -->
+  <line x1="180" y1="320" x2="332" y2="320" stroke="#8B5E3C" stroke-width="4" opacity="0.3" />
+  <line x1="200" y1="335" x2="312" y2="335" stroke="#8B5E3C" stroke-width="4" opacity="0.3" />
+  
+  <!-- House -->
+  <path d="M210 400 L302 400 L302 350 L256 310 L210 350 Z" fill="#5D3A1A" />
+  <rect x="220" y="360" width="72" height="40" fill="#8B5E3C" />
+  <rect x="246" y="380" width="20" height="20" fill="#3E2712" />
+  <rect x="228" y="370" width="12" height="12" fill="#FFD700" opacity="0.5" />
+  <rect x="272" y="370" width="12" height="12" fill="#FFD700" opacity="0.5" />
+
+  <!-- Crops -->
+  <g stroke="#004d00" stroke-width="5" stroke-linecap="round">
+    <path d="M256 310 L256 200" />
+    <path d="M256 310 C230 280 210 260 190 230" />
+    <path d="M256 310 C282 280 302 260 322 230" />
+  </g>
+  
+  <!-- Grains -->
+  <g fill="#FFD700">
+    <!-- Center -->
+    <ellipse cx="256" cy="190" rx="8" ry="12" />
+    <ellipse cx="256" cy="170" rx="8" ry="12" />
+    <ellipse cx="256" cy="150" rx="8" ry="12" />
+    <ellipse cx="240" cy="180" rx="8" ry="12" transform="rotate(-20 240 180)" />
+    <ellipse cx="272" cy="180" rx="8" ry="12" transform="rotate(20 272 180)" />
+    
+    <!-- Left -->
+    <ellipse cx="190" cy="230" rx="8" ry="12" transform="rotate(-30 190 230)" />
+    <ellipse cx="175" cy="215" rx="8" ry="12" transform="rotate(-30 175 215)" />
+    <ellipse cx="160" cy="200" rx="8" ry="12" transform="rotate(-30 160 200)" />
+    
+    <!-- Right -->
+    <ellipse cx="322" cy="230" rx="8" ry="12" transform="rotate(30 322 230)" />
+    <ellipse cx="337" cy="215" rx="8" ry="12" transform="rotate(30 337 215)" />
+    <ellipse cx="352" cy="200" rx="8" ry="12" transform="rotate(30 352 200)" />
+  </g>
+  
+  <!-- Decorative dots -->
+  <circle cx="100" cy="100" r="8" fill="#FFFFFF" opacity="0.2" />
+  <circle cx="412" cy="100" r="8" fill="#FFFFFF" opacity="0.2" />
+  <circle cx="100" cy="412" r="8" fill="#FFFFFF" opacity="0.2" />
+  <circle cx="412" cy="412" r="8" fill="#FFFFFF" opacity="0.2" />
+</svg>

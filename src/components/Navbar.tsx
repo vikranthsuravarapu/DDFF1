@@ -1,5 +1,5 @@
 import { Link, useNavigate } from 'react-router-dom';
-import { ShoppingCart, User, LogOut, Menu, X, Leaf, Sun, Moon, MapPin, Tag, Smartphone, Share, Wallet } from 'lucide-react';
+import { ShoppingCart, User, LogOut, Menu, X, Sun, Moon, MapPin, Tag, Smartphone, Share, Wallet } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useCart } from '../contexts/CartContext';
@@ -92,7 +92,7 @@ export default function Navbar({ isDarkMode, toggleDarkMode }: { isDarkMode: boo
       <div className="container mx-auto px-4">
         <div className="flex justify-between items-center h-16">
           <Link to="/" className="flex items-center space-x-2">
-            <Leaf className="text-[#D4820A] w-8 h-8" />
+            <img src="/logo.svg" alt="DDFF Logo" className="w-10 h-10" />
             <span className="text-xl font-bold tracking-tight">DDFF</span>
           </Link>
 
@@ -249,7 +249,7 @@ export default function Navbar({ isDarkMode, toggleDarkMode }: { isDarkMode: boo
             <Smartphone className="w-6 h-6" />
           </div>
           <div className="flex-grow">
-            <h4 className="font-bold text-sm">Install Grama Ruchulu</h4>
+            <h4 className="font-bold text-sm">Install DDFF</h4>
             <p className="text-xs text-slate-600 mt-1">
               Tap <Share className="w-3 h-3 inline mx-1" /> Share then <span className="font-bold">"Add to Home Screen"</span> to install on your iPhone.
             </p>

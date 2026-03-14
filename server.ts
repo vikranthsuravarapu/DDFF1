@@ -174,12 +174,12 @@ const sendVerificationEmail = async (userEmail: string, token: string) => {
   }
 
   const verificationUrl = `${process.env.APP_URL}/verify-email?token=${token}`;
-  const subject = 'Verify Your Email - Grama Ruchulu';
+  const subject = 'Verify Your Email - DDFF';
   const html = `
     <div style="font-family: sans-serif; padding: 20px; color: #333; max-width: 600px; margin: auto; border: 1px solid #eee; border-radius: 10px;">
-      <h2 style="color: #D4820A; text-align: center;">Welcome to Grama Ruchulu!</h2>
+      <h2 style="color: #D4820A; text-align: center;">Welcome to DDFF!</h2>
       <p>Hello,</p>
-      <p>Thank you for registering with Grama Ruchulu. To complete your registration and start shopping for authentic village flavors, please verify your email address by clicking the button below:</p>
+      <p>Thank you for registering with DDFF. To complete your registration and start shopping for fresh farm products, please verify your email address by clicking the button below:</p>
       <div style="text-align: center; margin: 30px 0;">
         <a href="${verificationUrl}" style="background-color: #D4820A; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">Verify Email Address</a>
       </div>
@@ -193,7 +193,7 @@ const sendVerificationEmail = async (userEmail: string, token: string) => {
 
   try {
     await transporter.sendMail({
-      from: `"Grama Ruchulu" <${process.env.SMTP_USER}>`,
+      from: `"DDFF" <${process.env.SMTP_USER}>`,
       to: userEmail,
       subject,
       html,
@@ -229,7 +229,7 @@ const sendOrderStatusEmail = async (userEmail: string, orderId: number, status: 
 
   try {
     await transporter.sendMail({
-      from: '"DDFF Grama Ruchulu" <noreply@ddff.com>',
+      from: '"DDFF" <noreply@ddff.com>',
       to: userEmail,
       subject,
       text,
@@ -256,7 +256,7 @@ const notifyOrderStatusUpdate = async (orderId: number, status: string) => {
       
       // Send WhatsApp
       if (order.phone) {
-        const message = `Hi ${order.name}, your order #${orderId} from Grama Ruchulu is now ${status}. Thank you! 🌾`;
+        const message = `Hi ${order.name}, your order #${orderId} from DDFF is now ${status}. Thank you! 🌾`;
         await sendWhatsAppNotification(order.phone, message);
       }
     }
@@ -1141,10 +1141,10 @@ app.post('/api/orders', authenticate, async (req: any, res) => {
           
           if (adminPhone) {
             if (stock === 0) {
-              await sendWhatsAppNotification(adminPhone, `🚨 OUT OF STOCK: ${name} has 0 units remaining! Customers cannot order this product. Restock immediately. — Grama Ruchulu`);
+              await sendWhatsAppNotification(adminPhone, `🚨 OUT OF STOCK: ${name} has 0 units remaining! Customers cannot order this product. Restock immediately. — DDFF`);
               notifiedProducts.add(item.product_id);
             } else if (stock >= 1 && stock <= 5) {
-              await sendWhatsAppNotification(adminPhone, `⚠️ Low Stock Alert!\n\nProduct: ${name}\nRemaining: ${stock} units\n\nPlease restock soon to avoid losing orders. — Grama Ruchulu`);
+              await sendWhatsAppNotification(adminPhone, `⚠️ Low Stock Alert!\n\nProduct: ${name}\nRemaining: ${stock} units\n\nPlease restock soon to avoid losing orders. — DDFF`);
               notifiedProducts.add(item.product_id);
             }
           }
@@ -1169,7 +1169,7 @@ app.post('/api/orders', authenticate, async (req: any, res) => {
     try {
       const userRes = await client.query('SELECT name FROM users WHERE id = $1', [userId]);
       const userName = userRes.rows[0]?.name || 'Customer';
-      const message = `Hi ${userName}, thank you for your order #${orderId} from Grama Ruchulu! We are processing it now. 🌾`;
+      const message = `Hi ${userName}, thank you for your order #${orderId} from DDFF! We are processing it now. 🌾`;
       await sendWhatsAppNotification(phone, message);
     } catch (notifyError) {
       console.error('Failed to send initial order notification:', notifyError);
@@ -1600,7 +1600,7 @@ app.patch('/api/orders/:id/cancel', authenticate, async (req: any, res) => {
     }
 
     if (order.payment_method === 'cod') {
-      whatsappMessage = `❌ Your order #${orderId} from Grama Ruchulu has been cancelled successfully. ${order.wallet_amount_used > 0 ? `₹${order.wallet_amount_used} has been refunded to your wallet.` : 'No payment was collected.'} We hope to serve you again soon! 🌾`;
+      whatsappMessage = `❌ Your order #${orderId} from DDFF has been cancelled successfully. ${order.wallet_amount_used > 0 ? `₹${order.wallet_amount_used} has been refunded to your wallet.` : 'No payment was collected.'} We hope to serve you again soon! 🌾`;
     } else if (order.payment_method === 'online') {
       if (refund_method === 'wallet') {
         // Wallet refund for the final_amount
@@ -1620,7 +1620,7 @@ app.patch('/api/orders/:id/cancel', authenticate, async (req: any, res) => {
         
         refund_status = 'processed';
         final_refund_method = 'wallet';
-        whatsappMessage = `✅ Order #${orderId} cancelled. ₹${Number(order.final_amount) + Number(order.wallet_amount_used)} has been instantly credited to your Grama Ruchulu wallet! 👛 Use it on your next order. Thank you for your patience! 🌾`;
+        whatsappMessage = `✅ Order #${orderId} cancelled. ₹${Number(order.final_amount) + Number(order.wallet_amount_used)} has been instantly credited to your DDFF wallet! 👛 Use it on your next order. Thank you for your patience! 🌾`;
       } else if (refund_method === 'bank') {
         // Bank refund via Razorpay
         if (!order.razorpay_payment_id) {
@@ -1821,7 +1821,7 @@ app.put('/api/admin/products/:id', authenticate, isAdmin, async (req, res) => {
       
       for (const alert of alertsRes.rows) {
         if (alert.phone) {
-          const message = `🌾 Good news! ${name} is back in stock on Grama Ruchulu. Order now before it sells out!`;
+          const message = `🌾 Good news! ${name} is back in stock on DDFF. Order now before it sells out!`;
           await sendWhatsAppNotification(alert.phone, message);
         }
       }
@@ -1868,7 +1868,7 @@ app.patch('/api/admin/products/bulk-stock', authenticate, isAdmin, async (req, r
         
         for (const alert of alertsRes.rows) {
           if (alert.phone) {
-            const message = `🌾 Good news! ${oldProduct.name} is back in stock on Grama Ruchulu. Order now before it sells out!`;
+            const message = `🌾 Good news! ${oldProduct.name} is back in stock on DDFF. Order now before it sells out!`;
             await sendWhatsAppNotification(alert.phone, message);
           }
         }

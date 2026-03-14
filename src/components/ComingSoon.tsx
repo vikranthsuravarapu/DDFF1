@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { MapPin, ArrowRight, Construction } from 'lucide-react';
+import { MapPin, ArrowRight } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function ComingSoon() {
@@ -13,7 +13,7 @@ export default function ComingSoon() {
         animate={{ scale: 1, opacity: 1 }}
         className="w-24 h-24 bg-[#D4820A]/10 rounded-full flex items-center justify-center text-[#D4820A]"
       >
-        <Construction className="w-12 h-12" />
+        <img src="/logo.svg" alt="DDFF Logo" className="w-16 h-16" />
       </motion.div>
 
       <div className="max-w-xl space-y-4">

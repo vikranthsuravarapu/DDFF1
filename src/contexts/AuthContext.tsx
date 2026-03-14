@@ -36,38 +36,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isCheckingDelivery, setIsCheckingDelivery] = useState(false);
 
   useEffect(() => {
+    const controller = new AbortController();
+    let isMounted = true;
+
     const checkDeliveryAvailability = async () => {
       if (!userLocation) {
-        setIsDeliveryAvailable(false); // Default to false if no location set yet
+        setIsDeliveryAvailable(false);
         return;
       }
 
       setIsCheckingDelivery(true);
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s timeout
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
 
+      try {
         const response = await fetch('/api/delivery-zones', { signal: controller.signal });
-        clearTimeout(timeoutId);
         
-        if (response.ok) {
+        if (isMounted && response.ok) {
           const zones = await response.json();
-          // Check if userLocation (village/pincode) matches any active zone
           const isAvailable = Array.isArray(zones) && zones.some((zone: any) => 
             zone.name.toLowerCase() === userLocation.toLowerCase() ||
             zone.pincode === userLocation
           );
           setIsDeliveryAvailable(isAvailable);
         }
-      } catch (error) {
+      } catch (error: any) {
+        if (error.name === 'AbortError') return;
         console.error('Error checking delivery availability:', error);
-        setIsDeliveryAvailable(true); // Fallback to true on error to not block users
+        if (isMounted) setIsDeliveryAvailable(true);
       } finally {
-        setIsCheckingDelivery(false);
+        clearTimeout(timeoutId);
+        if (isMounted) setIsCheckingDelivery(false);
       }
     };
 
     checkDeliveryAvailability();
+
+    return () => {
+      isMounted = false;
+      controller.abort();
+    };
   }, [userLocation]);
 
   useEffect(() => {

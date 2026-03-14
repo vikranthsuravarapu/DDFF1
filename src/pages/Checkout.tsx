@@ -432,7 +432,7 @@ export default function Checkout() {
             key: data.key,
             amount: data.amount,
             currency: data.currency,
-            name: "DDFF - Grama Ruchulu",
+            name: "DDFF",
             description: "Village Fresh Products",
             order_id: data.razorpayOrderId,
             handler: async (response: any) => {

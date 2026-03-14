@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bike, Mail, Lock, ArrowRight, AlertCircle } from 'lucide-react';
+import { Mail, Lock, ArrowRight, AlertCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function DeliveryLogin() {
@@ -58,7 +58,7 @@ export default function DeliveryLogin() {
       <div className="max-w-md w-full space-y-8">
         <div className="text-center space-y-4">
           <div className="bg-slate-900 w-20 h-20 rounded-2xl flex items-center justify-center mx-auto shadow-2xl border border-slate-700">
-            <Bike className="text-[#D4820A] w-12 h-12" />
+            <img src="/logo.svg" alt="DDFF Logo" className="w-12 h-12" />
           </div>
           <div className="space-y-2">
             <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white uppercase">

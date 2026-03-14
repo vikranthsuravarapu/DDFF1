@@ -20,7 +20,7 @@ export const getAIResponse = async (prompt: string, systemInstruction?: string) 
       model: "gemini-3-flash-preview",
       contents: [{ parts: [{ text: prompt }] }],
       config: {
-        systemInstruction: systemInstruction || "You are a helpful assistant for 'Grama Ruchulu', an online store selling fresh farm products like honey, spices, pulses, and fruits from Guntur and Vijayawada regions. Be polite, helpful, and encourage healthy eating.",
+        systemInstruction: systemInstruction || "You are a helpful assistant for 'DDFF', an online store selling fresh farm products like honey, spices, pulses, and fruits from Guntur and Vijayawada regions. Be polite, helpful, and encourage healthy eating.",
       },
     });
     return response.text;
@@ -78,7 +78,7 @@ export const generateFarmerStory = async (productName: string, origin: string) =
 export const analyzeAdminData = async (data: any, context: string) => {
   const dataString = JSON.stringify(data);
   const prompt = `Analyze the following admin data related to ${context}: ${dataString}. Provide key insights, identify trends, and suggest actionable business recommendations. Keep it professional and concise.`;
-  const systemInstruction = "You are a senior business analyst for 'DDF1'. You provide strategic insights to help the business grow and improve operations.";
+  const systemInstruction = "You are a senior business analyst for 'DDFF'. You provide strategic insights to help the business grow and improve operations.";
   return await getAIResponse(prompt, systemInstruction);
 };
 

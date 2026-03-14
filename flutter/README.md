@@ -1,4 +1,4 @@
-# 🌿 Grama Ruchulu Flutter App Structure
+# 🌿 DDFF Flutter App Structure
 
 This directory contains the structure and key files for the Flutter mobile app.
 

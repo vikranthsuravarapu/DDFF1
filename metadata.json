@@ -1,6 +1,6 @@
 {
-  "name": "DDF1",
-  "description": "Direct Delivery from Farmer - A platform connecting farmers directly to consumers for fresh, organic products.",
+  "name": "DDFF",
+  "description": "Direct Delivery From Farmer - A platform connecting farmers directly to consumers for fresh, organic products.",
   "requestFramePermissions": [
     "geolocation"
   ]

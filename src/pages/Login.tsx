@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Leaf, Mail, Lock, ArrowRight } from 'lucide-react';
+import { Mail, Lock, ArrowRight } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function Login() {
@@ -121,10 +121,10 @@ export default function Login() {
     <div className="max-w-md mx-auto py-12 space-y-8">
       <div className="text-center space-y-4">
         <div className="bg-[#D4820A] w-16 h-16 rounded-3xl flex items-center justify-center mx-auto shadow-xl shadow-[#D4820A]/20">
-          <Leaf className="text-white w-10 h-10" />
+          <img src="/logo.svg" alt="DDFF Logo" className="w-10 h-10" />
         </div>
         <h1 className="text-4xl font-bold text-gray-900 dark:text-slate-100">Welcome Back</h1>
-        <p className="text-gray-500 dark:text-slate-300">Login to your Grama Ruchulu account</p>
+        <p className="text-gray-500 dark:text-slate-300">Login to your DDFF account</p>
       </div>
 
       <form onSubmit={handleSubmit} className="bg-white dark:bg-slate-800 p-8 rounded-3xl border border-black/5 dark:border-white/10 shadow-sm space-y-6 transition-colors">

@@ -22,6 +22,7 @@ const cleanEnvVar = (val: string | undefined) => {
 };
 
 const app = express();
+app.set('trust proxy', 1);
 app.use(helmet({ contentSecurityPolicy: false }));
 const PORT = 3000;
 
@@ -74,7 +75,10 @@ app.use('/uploads', express.static('uploads'));
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 10, // 10 attempts per window
-  message: { error: 'Too many attempts. Please try again after 15 minutes.' }
+  message: { error: 'Too many attempts. Please try again after 15 minutes.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: false,
 });
 
 app.use('/api/auth/login', authLimiter);

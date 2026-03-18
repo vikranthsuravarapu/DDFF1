@@ -24,7 +24,7 @@ const cleanEnvVar = (val: string | undefined) => {
 const app = express();
 app.set('trust proxy', 1);
 app.use(helmet({ contentSecurityPolicy: false }));
-const PORT = 3000;
+const PORT = parseInt(process.env.PORT || '8080', 10);
 
 const JWT_SECRET = cleanEnvVar(process.env.JWT_SECRET);
 if (!JWT_SECRET) {
@@ -71,6 +71,12 @@ app.use(cors({
 }));
 app.use(express.json());
 app.use('/uploads', express.static('uploads'));
+
+// API Request Logging Middleware
+app.use('/api', (req, res, next) => {
+  console.log(`[API] ${req.method} ${req.originalUrl}`);
+  next();
+});
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -154,6 +160,25 @@ const isDeliveryBoy = (req: any, res: any, next: any) => {
   }
   return res.status(403).json({ error: 'Forbidden: Delivery Boy access required' });
 };
+
+// --- Health Check ---
+app.get('/api/health', async (req, res) => {
+  try {
+    await db.query('SELECT 1');
+    res.json({ 
+      status: 'ok', 
+      database: 'connected',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime()
+    });
+  } catch (error) {
+    res.status(503).json({ 
+      status: 'error', 
+      database: 'disconnected',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
 
 // --- Email Service ---
 const transporterConfig: any = {
@@ -2408,6 +2433,12 @@ async function startServer() {
   } catch (startupError) {
     console.error('[Server] Error during startup sequence:', startupError);
   }
+
+  // Explicit 404 for API routes to prevent HTML fallback
+  app.use('/api/*', (req, res) => {
+    console.warn(`[API] 404 Not Found: ${req.method} ${req.originalUrl}`);
+    res.status(404).json({ error: `API route not found: ${req.originalUrl}` });
+  });
 
   if (process.env.NODE_ENV !== 'production') {
     console.log('[Vite] Starting development server...');

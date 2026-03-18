@@ -1,23 +1,21 @@
 services:
   app:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     ports:
-      - "3000:3000"
-    # These variables are picked up from your .env file
+      - "8080:8080"
+    env_file:
+      - .env
     environment:
       - NODE_ENV=production
-      - JWT_SECRET=${JWT_SECRET}
-      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
-      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
-      - APP_URL=${APP_URL:-http://localhost:3000}
-      - DATABASE_URL=${DATABASE_URL}
-      - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID}
-      - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET}
-      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
-      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
-      - TWILIO_WHATSAPP_FROM=${TWILIO_WHATSAPP_FROM}
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - ADMIN_PHONE=${ADMIN_PHONE}
-      - VITE_GOOGLE_MAPS_API_KEY=${VITE_GOOGLE_MAPS_API_KEY}
-      - VITE_SUPPORT_WHATSAPP=${VITE_SUPPORT_WHATSAPP}
-    restart: always
+      - PORT=8080
+    volumes:
+      - ./uploads:/app/uploads
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s

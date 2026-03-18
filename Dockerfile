@@ -1,27 +1,20 @@
-# Use Node.js 22 as the base image
-FROM node:22-slim
-
-# Set the working directory
+FROM node:20-alpine AS builder
 WORKDIR /app
-
-# Copy package files
 COPY package*.json ./
-
-# Install dependencies
-RUN npm install
-
-# Copy the rest of the application code
+RUN npm ci
 COPY . .
-
-# Build the frontend
 RUN npm run build
 
-# Expose the port the app runs on
-EXPOSE 3000
-
-# Set environment variables
+FROM node:20-alpine AS runner
+WORKDIR /app
 ENV NODE_ENV=production
-ENV PORT=3000
-
-# Start the application
-CMD ["npm", "start"]
+COPY package*.json ./
+RUN npm ci --omit=dev
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/src ./src
+COPY --from=builder /app/server.ts ./server.ts
+COPY --from=builder /app/tsconfig.json ./tsconfig.json
+COPY --from=builder /app/public ./public
+RUN mkdir -p uploads/proofs
+EXPOSE 8080
+CMD ["npx", "tsx", "server.ts"]

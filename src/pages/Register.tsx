@@ -10,7 +10,8 @@ export default function Register() {
     phone: '',
     password: '',
     confirmPassword: '',
-    referral_code: ''
+    referral_code: '',
+    acceptTerms: false
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -63,6 +64,7 @@ export default function Register() {
     if (!formData.password) newErrors.password = 'Password is required';
     else if (formData.password.length < 6) newErrors.password = 'Password must be at least 6 characters';
     if (formData.password !== formData.confirmPassword) newErrors.confirmPassword = 'Passwords do not match';
+    if (!formData.acceptTerms) newErrors.acceptTerms = 'You must accept the terms and conditions';
     
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -255,6 +257,27 @@ export default function Register() {
                 onChange={e => setFormData({...formData, referral_code: e.target.value.toUpperCase()})}
               />
             </div>
+          </div>
+
+          <div className="relative">
+            <label className="flex items-start space-x-3 cursor-pointer group">
+              <div className="relative flex items-center mt-1">
+                <input 
+                  type="checkbox" 
+                  className={`peer h-5 w-5 cursor-pointer appearance-none rounded border ${errors.acceptTerms ? 'border-red-500' : 'border-slate-300 dark:border-slate-600'} checked:border-[#D4820A] checked:bg-[#D4820A] transition-all`}
+                  checked={formData.acceptTerms}
+                  onChange={e => {
+                    setFormData({...formData, acceptTerms: e.target.checked});
+                    if (errors.acceptTerms) setErrors({...errors, acceptTerms: undefined});
+                  }}
+                />
+                <svg className="absolute left-0.5 top-0.5 h-4 w-4 text-white opacity-0 peer-checked:opacity-100 transition-opacity pointer-events-none" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              </div>
+              <span className="text-sm text-gray-600 dark:text-slate-300">
+                I agree to the <Link to="/terms" className="text-[#D4820A] font-bold hover:underline">Terms of Service</Link> and <Link to="/privacy" className="text-[#D4820A] font-bold hover:underline">Privacy Policy</Link>
+              </span>
+            </label>
+            {errors.acceptTerms && <div className="absolute left-8 -bottom-5 text-[10px] text-red-500 font-bold">{errors.acceptTerms}</div>}
           </div>
         </div>
 

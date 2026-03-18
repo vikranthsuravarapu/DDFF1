@@ -5,10 +5,12 @@ import { LanguageProvider } from './contexts/LanguageContext';
 import { CartProvider } from './contexts/CartContext';
 import { WishlistProvider } from './contexts/WishlistContext';
 import Navbar from './components/Navbar';
+import Footer from './components/Footer';
 import GlobalCart from './components/GlobalCart';
 import AIChatAssistant from './components/AIChatAssistant';
 import WhatsAppSupport from './components/WhatsAppSupport';
 import LocationSelectionModal from './components/LocationSelectionModal';
+import ErrorBoundary from './components/ErrorBoundary';
 import Home from './pages/Home';
 import Products from './pages/Products';
 import ProductDetail from './pages/ProductDetail';
@@ -31,6 +33,11 @@ import FarmerProfile from './pages/FarmerProfile';
 import OrderDetails from './pages/OrderDetails';
 import DeliveryDashboard from './pages/DeliveryDashboard';
 import Offers from './pages/Offers';
+import About from './pages/About';
+import Privacy from './pages/Privacy';
+import Terms from './pages/Terms';
+import Refund from './pages/Refund';
+import NotFound from './pages/NotFound';
 
 function PrivateRoute({ children, adminOnly = false, deliveryOnly = false }: { children: React.ReactNode, adminOnly?: boolean, deliveryOnly?: boolean }) {
   const { isAuthenticated, isAdmin, user } = useAuth();
@@ -59,9 +66,9 @@ function AppRoutes() {
   const isDeliveryBoy = user?.role === 'delivery_boy';
 
   return (
-    <div className={`min-h-screen transition-colors duration-300 ${isDarkMode ? 'dark bg-slate-950 text-white' : 'bg-[#FDF6EC] text-[#3B2A1A]'}`}>
+    <div className={`min-h-screen flex flex-col transition-colors duration-300 ${isDarkMode ? 'dark bg-slate-950 text-white' : 'bg-[#FDF6EC] text-[#3B2A1A]'}`}>
       <Navbar isDarkMode={isDarkMode} toggleDarkMode={() => setIsDarkMode(!isDarkMode)} />
-      <main className="container mx-auto px-2 sm:px-4 py-4 sm:py-8">
+      <main className="flex-grow container mx-auto px-2 sm:px-4 py-4 sm:py-8">
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/products" element={<Products />} />
@@ -80,6 +87,12 @@ function AppRoutes() {
           <Route path="/order-tracking/:id" element={<PrivateRoute><OrderDetails /></PrivateRoute>} />
           <Route path="/delivery" element={<PrivateRoute deliveryOnly><DeliveryDashboard /></PrivateRoute>} />
           
+          {/* Static Pages */}
+          <Route path="/about" element={<About />} />
+          <Route path="/privacy" element={<Privacy />} />
+          <Route path="/terms" element={<Terms />} />
+          <Route path="/refund" element={<Refund />} />
+
           {/* Admin Routes */}
           <Route path="/admin" element={<PrivateRoute adminOnly><AdminDashboard /></PrivateRoute>} />
           <Route path="/admin/orders" element={<PrivateRoute adminOnly><AdminOrders /></PrivateRoute>} />
@@ -89,8 +102,14 @@ function AppRoutes() {
           <Route path="/admin/delivery-staff" element={<PrivateRoute adminOnly><AdminDeliveryStaff /></PrivateRoute>} />
           <Route path="/admin/delivery-zones" element={<PrivateRoute adminOnly><AdminDeliveryZones /></PrivateRoute>} />
           <Route path="/admin/promo-codes" element={<PrivateRoute adminOnly><AdminPromoCodes /></PrivateRoute>} />
+
+          {/* 404 Route */}
+          <Route path="*" element={<NotFound />} />
         </Routes>
       </main>
+      
+      {!isDeliveryBoy && <Footer />}
+
       {!isDeliveryBoy && (
         <>
           <GlobalCart />
@@ -105,16 +124,18 @@ function AppRoutes() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <LanguageProvider>
-        <WishlistProvider>
-          <CartProvider>
-            <Router>
-              <AppRoutes />
-            </Router>
-          </CartProvider>
-        </WishlistProvider>
-      </LanguageProvider>
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <LanguageProvider>
+          <WishlistProvider>
+            <CartProvider>
+              <Router>
+                <AppRoutes />
+              </Router>
+            </CartProvider>
+          </WishlistProvider>
+        </LanguageProvider>
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }

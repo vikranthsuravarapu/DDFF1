@@ -7,7 +7,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { formatCurrency } from '../utils/format';
 
 export default function Profile() {
-  const { user, token, login, userLocation, setIsLocationModalOpen, refreshUser } = useAuth();
+  const { user, token, refreshToken, login, userLocation, setIsLocationModalOpen, refreshUser } = useAuth();
   const { addItem, setNotification } = useCart();
   const { t } = useLanguage();
   const navigate = useNavigate();
@@ -146,7 +146,7 @@ export default function Profile() {
       });
       if (res.ok) {
         const data = await res.json();
-        login(token!, data.user);
+        login(token!, refreshToken!, data.user);
         setShowEditModal(false);
       }
     } catch (err) {

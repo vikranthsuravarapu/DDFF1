@@ -3,8 +3,9 @@ dist
 .git
 .env
 *.db
-*.db-journal
-*.db-shm
-*.db-wal
+*.sqlite
 npm-debug.log
 error.log
+uploads/
+README.md
+flutter/

@@ -29,6 +29,8 @@ import AdminFarmers from './pages/admin/Farmers';
 import AdminDeliveryZones from './pages/admin/DeliveryZones';
 import AdminDeliveryStaff from './pages/admin/DeliveryStaff';
 import AdminPromoCodes from './pages/admin/PromoCodes';
+import AdminAuditLogs from './pages/admin/AuditLogs';
+import AdminBundles from './pages/admin/Bundles';
 import FarmerProfile from './pages/FarmerProfile';
 import OrderDetails from './pages/OrderDetails';
 import DeliveryDashboard from './pages/DeliveryDashboard';
@@ -102,6 +104,8 @@ function AppRoutes() {
           <Route path="/admin/delivery-staff" element={<PrivateRoute adminOnly><AdminDeliveryStaff /></PrivateRoute>} />
           <Route path="/admin/delivery-zones" element={<PrivateRoute adminOnly><AdminDeliveryZones /></PrivateRoute>} />
           <Route path="/admin/promo-codes" element={<PrivateRoute adminOnly><AdminPromoCodes /></PrivateRoute>} />
+          <Route path="/admin/audit-logs" element={<PrivateRoute adminOnly><AdminAuditLogs /></PrivateRoute>} />
+          <Route path="/admin/bundles" element={<PrivateRoute adminOnly><AdminBundles /></PrivateRoute>} />
 
           {/* 404 Route */}
           <Route path="*" element={<NotFound />} />

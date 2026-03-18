@@ -38,7 +38,7 @@ export default function DeliveryLogin() {
       const data = await res.json();
       if (res.ok) {
         if (data.user.role === 'delivery_boy') {
-          login(data.token, data.user);
+          login(data.token, data.refreshToken, data.user);
           navigate('/delivery');
         } else {
           setError('This portal is for delivery staff only.');

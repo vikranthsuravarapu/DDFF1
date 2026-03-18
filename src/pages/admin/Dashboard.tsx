@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { BarChart3, Package, Users, AlertTriangle, TrendingUp, ShoppingBag, ChevronRight, Sparkles, Loader2, X, UserPlus, MapPin, Bike, Tag } from 'lucide-react';
+import { BarChart3, Package, Users, AlertTriangle, TrendingUp, ShoppingBag, ChevronRight, Sparkles, Loader2, X, UserPlus, MapPin, Bike, Tag, History, Gift } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { analyzeAdminData } from '../../services/geminiService';
@@ -180,6 +180,24 @@ export default function AdminDashboard() {
               <Tag className="w-6 h-6 text-[#D4820A] group-hover:scale-110 transition-transform relative z-10" />
               <p className="font-bold text-gray-900 dark:text-slate-100 relative z-10">Promo Codes</p>
               <p className="text-xs text-gray-500 dark:text-slate-400 relative z-10">Create & manage offers</p>
+            </Link>
+            <Link 
+              to="/admin/audit-logs"
+              className="p-6 rounded-2xl border border-black/10 dark:border-white/10 hover:border-[#D4820A] hover:bg-[#D4820A]/5 transition-all text-left space-y-2 group relative overflow-hidden"
+            >
+              <div className="absolute -right-2 -top-2 opacity-5 text-6xl group-hover:scale-110 transition-transform">📜</div>
+              <History className="w-6 h-6 text-[#D4820A] group-hover:scale-110 transition-transform relative z-10" />
+              <p className="font-bold text-gray-900 dark:text-slate-100 relative z-10">Audit Trail</p>
+              <p className="text-xs text-gray-500 dark:text-slate-400 relative z-10">Track admin actions</p>
+            </Link>
+            <Link 
+              to="/admin/bundles"
+              className="p-6 rounded-2xl border border-black/10 dark:border-white/10 hover:border-[#D4820A] hover:bg-[#D4820A]/5 transition-all text-left space-y-2 group relative overflow-hidden"
+            >
+              <div className="absolute -right-2 -top-2 opacity-5 text-6xl group-hover:scale-110 transition-transform">🎁</div>
+              <Gift className="w-6 h-6 text-[#D4820A] group-hover:scale-110 transition-transform relative z-10" />
+              <p className="font-bold text-gray-900 dark:text-slate-100 relative z-10">Manage Bundles</p>
+              <p className="text-xs text-gray-500 dark:text-slate-400 relative z-10">Create combo offers</p>
             </Link>
           </div>
         </div>

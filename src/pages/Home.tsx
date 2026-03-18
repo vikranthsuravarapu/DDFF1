@@ -1,20 +1,24 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowRight, Star, ShieldCheck, Truck, Clock, Loader2 } from 'lucide-react';
+import { ArrowRight, Star, ShieldCheck, Truck, Clock, Loader2, Gift, ShoppingCart, CheckCircle2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import ProductCard from '../components/ProductCard';
 import ComingSoon from '../components/ComingSoon';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useCart } from '../contexts/CartContext';
 
 export default function Home() {
   const { t } = useLanguage();
+  const { addItem } = useCart();
   const [featuredProducts, setFeaturedProducts] = useState([]);
   const [flashSales, setFlashSales] = useState([]);
+  const [bundles, setBundles] = useState<any[]>([]);
   const [categories, setCategories] = useState([]);
   const [activePromos, setActivePromos] = useState<any[]>([]);
   const { isDeliveryAvailable, isCheckingDelivery, user } = useAuth();
   const navigate = useNavigate();
+  const [addingBundleId, setAddingBundleId] = useState<number | null>(null);
 
   useEffect(() => {
     if (user?.role === 'delivery_boy') {
@@ -25,25 +29,42 @@ export default function Home() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [productsRes, flashRes, categoriesRes] = await Promise.all([
+        const [productsRes, flashRes, categoriesRes, bundlesRes] = await Promise.all([
           fetch('/api/products?featured=1'),
           fetch('/api/products/flash-sales'),
-          fetch('/api/categories')
+          fetch('/api/categories'),
+          fetch('/api/bundles')
         ]);
-        const [productsData, flashData, categoriesData] = await Promise.all([
+        const [productsData, flashData, categoriesData, bundlesData] = await Promise.all([
           productsRes.json(),
           flashRes.json(),
-          categoriesRes.json()
+          categoriesRes.json(),
+          bundlesRes.json()
         ]);
         setFeaturedProducts(Array.isArray(productsData) ? productsData : []);
         setFlashSales(Array.isArray(flashData) ? flashData : []);
         setCategories(Array.isArray(categoriesData) ? categoriesData : []);
+        setBundles(Array.isArray(bundlesData) ? bundlesData : []);
       } catch (error) {
         console.error('Error fetching home data:', error);
       }
     };
     fetchData();
   }, []);
+
+  const handleAddBundle = async (bundle: any) => {
+    setAddingBundleId(bundle.id);
+    for (const item of bundle.items) {
+      addItem({
+        id: item.product_id,
+        name: item.name,
+        price: item.price,
+        image_url: item.image_url,
+        unit: item.unit
+      }, item.quantity);
+    }
+    setTimeout(() => setAddingBundleId(null), 2000);
+  };
 
   useEffect(() => {
     const fetchPromos = async () => {
@@ -126,6 +147,86 @@ export default function Home() {
               <div key={product.id} className="w-[280px] sm:w-[320px] flex-shrink-0">
                 <ProductCard product={product} />
               </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Value Combos Section */}
+      {bundles.length > 0 && (
+        <section className="space-y-8 animate-in fade-in slide-in-from-bottom-4">
+          <div className="flex justify-between items-end">
+            <div>
+              <div className="flex items-center space-x-2 text-[#D4820A] mb-1">
+                <Gift className="w-5 h-5" />
+                <span className="text-sm font-black uppercase tracking-widest">Special Offers</span>
+              </div>
+              <h2 className="text-3xl font-bold dark:text-white">🎁 Value Combos</h2>
+              <p className="text-gray-600 dark:text-slate-400">Save more with our curated product bundles</p>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            {bundles.map((bundle) => (
+              <motion.div
+                key={bundle.id}
+                whileHover={{ y: -5 }}
+                className="bg-white dark:bg-slate-800 rounded-[2.5rem] border border-black/5 dark:border-white/10 shadow-xl overflow-hidden flex flex-col sm:flex-row group"
+              >
+                <div className="sm:w-2/5 relative overflow-hidden">
+                  <img 
+                    src={bundle.image_url} 
+                    alt={bundle.name}
+                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
+                    referrerPolicy="no-referrer"
+                  />
+                  <div className="absolute top-4 left-4 bg-emerald-500 text-white px-4 py-2 rounded-2xl font-black text-sm shadow-lg">
+                    SAVE ₹{(Number(bundle.original_total) - Number(bundle.bundle_price)).toFixed(0)}
+                  </div>
+                </div>
+                
+                <div className="sm:w-3/5 p-8 flex flex-col justify-between space-y-6">
+                  <div className="space-y-2">
+                    <h3 className="text-2xl font-bold text-gray-900 dark:text-slate-100">{bundle.name}</h3>
+                    <p className="text-sm text-gray-500 dark:text-slate-400 line-clamp-2">{bundle.description}</p>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="flex flex-wrap gap-2">
+                      {bundle.items.map((item: any, idx: number) => (
+                        <div key={idx} className="flex items-center space-x-2 bg-gray-50 dark:bg-slate-900 px-3 py-1.5 rounded-xl border border-black/5 dark:border-white/5">
+                          <img src={item.image_url} alt={item.name} className="w-5 h-5 rounded-md object-cover" />
+                          <span className="text-[10px] font-bold text-gray-600 dark:text-slate-300">
+                            {item.quantity}x {item.name}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="flex items-center justify-between pt-4 border-t border-black/5 dark:border-white/5">
+                      <div className="space-y-1">
+                        <p className="text-xs text-gray-400 line-through font-medium">₹{Number(bundle.original_total).toFixed(2)}</p>
+                        <p className="text-3xl font-black text-[#D4820A]">₹{Number(bundle.bundle_price).toFixed(2)}</p>
+                      </div>
+                      <button
+                        onClick={() => handleAddBundle(bundle)}
+                        disabled={addingBundleId === bundle.id}
+                        className={`p-4 rounded-2xl shadow-xl transition-all active:scale-95 ${
+                          addingBundleId === bundle.id 
+                            ? 'bg-emerald-500 text-white' 
+                            : 'bg-gray-900 dark:bg-white text-white dark:text-gray-900 hover:opacity-90'
+                        }`}
+                      >
+                        {addingBundleId === bundle.id ? (
+                          <CheckCircle2 className="w-6 h-6" />
+                        ) : (
+                          <ShoppingCart className="w-6 h-6" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
             ))}
           </div>
         </section>

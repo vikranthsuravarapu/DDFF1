@@ -12,17 +12,19 @@ interface User {
 interface AuthContextType {
   user: User | null;
   token: string | null;
+  refreshToken: string | null;
   userLocation: string | null;
   isLocationModalOpen: boolean;
   isDeliveryAvailable: boolean;
   isCheckingDelivery: boolean;
-  login: (token: string, user: User) => void;
+  login: (token: string, refreshToken: string, user: User) => void;
   logout: () => void;
   setUserLocation: (location: string) => void;
   setIsLocationModalOpen: (isOpen: boolean) => void;
   isAuthenticated: boolean;
   isAdmin: boolean;
   refreshUser: () => Promise<void>;
+  apiFetch: (url: string, options?: RequestInit) => Promise<Response>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -30,6 +32,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
+  const [refreshToken, setRefreshToken] = useState<string | null>(null);
   const [userLocation, setUserLocationState] = useState<string | null>(null);
   const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
   const [isDeliveryAvailable, setIsDeliveryAvailable] = useState(true);
@@ -79,11 +82,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const savedToken = localStorage.getItem('token');
+    const savedRefreshToken = localStorage.getItem('refreshToken');
     const savedUser = localStorage.getItem('user');
     const savedLocation = localStorage.getItem('userLocation');
     
     if (savedToken && savedUser) {
       setToken(savedToken);
+      setRefreshToken(savedRefreshToken);
       setUser(JSON.parse(savedUser));
     }
     
@@ -97,18 +102,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Listen for OAuth success from popup
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
-        const { token, user } = event.data;
-        login(token, user);
+        const { token, refreshToken, user } = event.data;
+        login(token, refreshToken, user);
       }
     };
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
   }, []);
 
-  const login = (newToken: string, newUser: User) => {
+  const login = (newToken: string, newRefreshToken: string, newUser: User) => {
     setToken(newToken);
+    setRefreshToken(newRefreshToken);
     setUser(newUser);
     localStorage.setItem('token', newToken);
+    localStorage.setItem('refreshToken', newRefreshToken);
     localStorage.setItem('user', JSON.stringify(newUser));
     
     // Check if location exists, if not show modal
@@ -118,12 +125,51 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const apiFetch = async (url: string, options: RequestInit = {}): Promise<Response> => {
+    const headers = {
+      ...(options.headers || {}),
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    };
+
+    let response = await fetch(url, { ...options, headers });
+
+    if (response.status === 401 && refreshToken) {
+      try {
+        const refreshRes = await fetch('/api/auth/refresh', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refreshToken })
+        });
+
+        if (refreshRes.ok) {
+          const { token: newToken } = await refreshRes.json();
+          setToken(newToken);
+          localStorage.setItem('token', newToken);
+          
+          // Retry original request
+          const retryHeaders = {
+            ...(options.headers || {}),
+            'Authorization': `Bearer ${newToken}`
+          };
+          response = await fetch(url, { ...options, headers: retryHeaders });
+        } else {
+          logout();
+          window.location.href = '/login';
+        }
+      } catch (err) {
+        console.error('Token refresh failed:', err);
+        logout();
+        window.location.href = '/login';
+      }
+    }
+
+    return response;
+  };
+
   const refreshUser = async () => {
     if (!token) return;
     try {
-      const res = await fetch('/api/user/profile', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const res = await apiFetch('/api/user/profile');
       if (res.ok) {
         const updatedUser = await res.json();
         setUser(updatedUser);
@@ -140,12 +186,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsLocationModalOpen(false);
   };
 
-  const logout = () => {
+  const logout = async () => {
+    if (token && refreshToken) {
+      try {
+        await fetch('/api/auth/logout', {
+          method: 'POST',
+          headers: { 
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ refreshToken })
+        });
+      } catch (err) {
+        console.error('Logout API call failed:', err);
+      }
+    }
     setToken(null);
+    setRefreshToken(null);
     setUser(null);
     setUserLocationState(null);
     setIsLocationModalOpen(false);
     localStorage.removeItem('token');
+    localStorage.removeItem('refreshToken');
     localStorage.removeItem('user');
     localStorage.removeItem('userLocation');
   };
@@ -154,6 +216,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     <AuthContext.Provider value={{ 
       user, 
       token, 
+      refreshToken,
       userLocation,
       isLocationModalOpen,
       isDeliveryAvailable,
@@ -163,6 +226,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUserLocation,
       setIsLocationModalOpen,
       refreshUser,
+      apiFetch,
       isAuthenticated: !!token,
       isAdmin: user?.role === 'admin'
     }}>

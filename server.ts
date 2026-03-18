@@ -1,6 +1,14 @@
 import 'dotenv/config';
+import * as Sentry from '@sentry/node';
 import express from 'express';
 import helmet from 'helmet';
+
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
+  environment: process.env.NODE_ENV || 'development',
+  tracesSampleRate: 0.1,
+  enabled: !!process.env.SENTRY_DSN
+});
 import cors from 'cors';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
@@ -15,6 +23,14 @@ import rateLimit from 'express-rate-limit';
 import { createServer as createViteServer } from 'vite';
 import { pool as db, initDb } from './src/db';
 import { sendWhatsAppNotification } from './src/services/notificationService';
+import { uploadProofPhoto } from './src/services/storageService';
+import { body, param, validationResult } from 'express-validator';
+
+const validate = (req: any, res: any, next: any) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ error: errors.array()[0].msg });
+  next();
+};
 
 const cleanEnvVar = (val: string | undefined) => {
   if (!val) return '';
@@ -23,12 +39,68 @@ const cleanEnvVar = (val: string | undefined) => {
 
 const app = express();
 app.set('trust proxy', 1);
-app.use(helmet({ contentSecurityPolicy: false }));
-const PORT = parseInt(process.env.PORT || '8080', 10);
+app.use(helmet({
+  contentSecurityPolicy: process.env.NODE_ENV === 'production' ? {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: [
+        "'self'",
+        "'unsafe-inline'",
+        "https://checkout.razorpay.com",
+        "https://maps.googleapis.com",
+        "https://maps.gstatic.com",
+        "https://cdnjs.cloudflare.com"
+      ],
+      styleSrc: [
+        "'self'",
+        "'unsafe-inline'",
+        "https://fonts.googleapis.com"
+      ],
+      fontSrc: [
+        "'self'",
+        "https://fonts.gstatic.com"
+      ],
+      imgSrc: [
+        "'self'",
+        "data:",
+        "blob:",
+        "https:",
+        "https://storage.googleapis.com",
+        "https://lh3.googleusercontent.com"
+      ],
+      connectSrc: [
+        "'self'",
+        "https://api.razorpay.com",
+        "https://maps.googleapis.com",
+        "https://generativelanguage.googleapis.com",
+        "https://identitytoolkit.googleapis.com"
+      ],
+      frameSrc: [
+        "https://api.razorpay.com",
+        "https://checkout.razorpay.com"
+      ],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+      upgradeInsecureRequests: []
+    }
+  } : false,
+  hsts: {
+    maxAge: 31536000,
+    includeSubDomains: true,
+    preload: true
+  },
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+  frameguard: { action: 'deny' },
+  noSniff: true,
+  xssFilter: true
+}));
 
-const JWT_SECRET = cleanEnvVar(process.env.JWT_SECRET);
-if (!JWT_SECRET) {
-  console.error('FATAL: JWT_SECRET environment variable is not set. Exiting.');
+const PORT = parseInt(process.env.PORT || '3000', 10);
+
+const JWT_SECRET = cleanEnvVar(process.env.JWT_SECRET) || 'development-secret-key-at-least-32-chars-long';
+if (!process.env.JWT_SECRET && process.env.NODE_ENV === 'production') {
+  console.error('FATAL: JWT_SECRET environment variable is not set in production. Exiting.');
   process.exit(1);
 }
 
@@ -69,6 +141,96 @@ app.use(cors({
     : true,
   credentials: true
 }));
+app.post('/api/webhooks/razorpay',
+  express.raw({ type: 'application/json' }),
+  async (req: any, res) => {
+    const signature = req.headers['x-razorpay-signature'] as string;
+    const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
+
+    if (!webhookSecret) {
+      console.warn('[Webhook] RAZORPAY_WEBHOOK_SECRET not configured');
+      return res.status(200).json({ received: true });
+    }
+
+    try {
+      const expectedSignature = crypto
+        .createHmac('sha256', webhookSecret)
+        .update(req.body)
+        .digest('hex');
+
+      if (signature !== expectedSignature) {
+        console.error('[Webhook] Invalid Razorpay signature');
+        return res.status(400).json({ error: 'Invalid signature' });
+      }
+
+      const event = JSON.parse(req.body.toString());
+      console.log(`[Webhook] Received event: ${event.event}`);
+
+      if (event.event === 'payment.captured') {
+        const paymentId = event.payload.payment.entity.id;
+        const notes = event.payload.payment.entity.notes;
+        const orderId = notes?.order_id;
+
+        if (orderId) {
+          const existing = await db.query(
+            'SELECT id, payment_status FROM orders WHERE id = $1',
+            [orderId]
+          );
+          if (existing.rows[0] && existing.rows[0].payment_status !== 'paid') {
+            await db.query(
+              'UPDATE orders SET payment_status = $1, status = $2, razorpay_payment_id = $3 WHERE id = $4',
+              ['paid', 'confirmed', paymentId, orderId]
+            );
+            console.log(`[Webhook] Order ${orderId} marked as paid via webhook`);
+            try {
+              const userRes = await db.query(
+                'SELECT u.phone, u.name FROM orders o JOIN users u ON o.user_id = u.id WHERE o.id = $1',
+                [orderId]
+              );
+              if (userRes.rows[0]?.phone) {
+                await sendWhatsAppNotification(
+                  userRes.rows[0].phone,
+                  `✅ Payment confirmed for Order #${orderId}! Your order is now being processed. Thank you, ${userRes.rows[0].name}! 🌾`
+                );
+              }
+            } catch (notifError) {
+              Sentry.captureException(notifError);
+              console.error('[Webhook] Notification failed:', notifError);
+            }
+          }
+        }
+      }
+
+      if (event.event === 'refund.processed') {
+        const razorpayRefundId = event.payload.refund.entity.id;
+        await db.query(
+          'UPDATE orders SET refund_status = $1 WHERE refund_id = $2',
+          ['processed', razorpayRefundId]
+        );
+        console.log(`[Webhook] Refund ${razorpayRefundId} marked as processed`);
+      }
+
+      if (event.event === 'payment.failed') {
+        const notes = event.payload.payment.entity.notes;
+        const orderId = notes?.order_id;
+        if (orderId) {
+          await db.query(
+            'UPDATE orders SET payment_status = $1 WHERE id = $2',
+            ['failed', orderId]
+          );
+          console.log(`[Webhook] Order ${orderId} payment failed`);
+        }
+      }
+
+      res.json({ received: true });
+    } catch (error) {
+      Sentry.captureException(error);
+      console.error('[Webhook] Processing error:', error);
+      res.status(500).json({ error: 'Webhook processing failed' });
+    }
+  }
+);
+
 app.use(express.json());
 app.use('/uploads', express.static('uploads'));
 
@@ -98,19 +260,23 @@ if (!fs.existsSync(uploadDir)) {
 }
 
 // Multer setup for proof of delivery
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, 'uploads/proofs/');
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, 'proof-' + uniqueSuffix + path.extname(file.originalname));
+const upload = multer({
+  storage: process.env.GCS_BUCKET_NAME
+    ? multer.memoryStorage()
+    : multer.diskStorage({
+        destination: (req, file, cb) => cb(null, 'uploads/proofs/'),
+        filename: (req, file, cb) => {
+          const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+          cb(null, 'proof-' + uniqueSuffix + path.extname(file.originalname));
+        }
+      }),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowed = ['image/jpeg', 'image/png', 'image/webp'];
+    allowed.includes(file.mimetype)
+      ? cb(null, true)
+      : cb(new Error('Only JPEG, PNG and WebP images are allowed'));
   }
-});
-
-const upload = multer({ 
-  storage: storage,
-  limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
 });
 
 // --- Auth Middleware ---
@@ -130,6 +296,7 @@ const authenticate = (req: any, res: any, next: any) => {
     req.user = decoded;
     next();
   } catch (e: any) {
+    Sentry.captureException(e);
     console.error('JWT Verification Error:', e.message);
     if (e.name === 'TokenExpiredError') {
       return res.status(401).json({ error: 'Token expired. Please login again.' });
@@ -160,6 +327,51 @@ const isDeliveryBoy = (req: any, res: any, next: any) => {
   }
   return res.status(403).json({ error: 'Forbidden: Delivery Boy access required' });
 };
+
+async function auditLog(
+  req: any,
+  action: string,
+  resourceType: string,
+  resourceId: string,
+  oldValue?: any,
+  newValue?: any
+) {
+  try {
+    await db.query(
+      `INSERT INTO audit_logs
+       (user_id, user_email, action, resource_type, resource_id, old_value, new_value, ip_address)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [
+        req.user?.id,
+        req.user?.email || 'unknown',
+        action,
+        resourceType,
+        resourceId,
+        oldValue ? JSON.stringify(oldValue) : null,
+        newValue ? JSON.stringify(newValue) : null,
+        req.ip
+      ]
+    );
+  } catch (e) {
+    Sentry.captureException(e);
+    console.error('[Audit] Failed to write audit log:', e);
+  }
+}
+
+async function generateTokens(user: any) {
+  const accessToken = jwt.sign(
+    { id: user.id, email: user.email, role: user.role },
+    JWT_SECRET,
+    { expiresIn: '15m' }
+  );
+  const refreshToken = crypto.randomBytes(64).toString('hex');
+  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+  await db.query(
+    'INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES ($1, $2, $3)',
+    [user.id, refreshToken, expiresAt]
+  );
+  return { accessToken, refreshToken };
+}
 
 // --- Health Check ---
 app.get('/api/health', async (req, res) => {
@@ -229,6 +441,7 @@ const sendVerificationEmail = async (userEmail: string, token: string) => {
     });
     console.log(`[Email] Verification email sent to ${userEmail}`);
   } catch (error) {
+    Sentry.captureException(error);
     console.error(`[Email] Failed to send verification email to ${userEmail}:`, error);
   }
 };
@@ -265,6 +478,7 @@ const sendOrderStatusEmail = async (userEmail: string, orderId: number, status: 
       html,
     });
   } catch (error) {
+    Sentry.captureException(error);
     console.error('Email sending failed:', error);
   }
 };
@@ -290,6 +504,7 @@ const notifyOrderStatusUpdate = async (orderId: number, status: string) => {
       }
     }
   } catch (error) {
+    Sentry.captureException(error);
     console.error(`Failed to send notifications for order #${orderId}:`, error);
   }
 };
@@ -504,7 +719,7 @@ app.get('/auth/google/callback', async (req, res) => {
       }
     }
 
-    const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
+    const { accessToken, refreshToken } = await generateTokens(user);
 
     // 4. Send success message to parent window and close popup
     res.send(`
@@ -514,7 +729,8 @@ app.get('/auth/google/callback', async (req, res) => {
             if (window.opener) {
               window.opener.postMessage({ 
                 type: 'OAUTH_AUTH_SUCCESS', 
-                token: '${token}', 
+                token: '${accessToken}', 
+                refreshToken: '${refreshToken}',
                 user: ${JSON.stringify({ id: user.id, name: user.name, email: user.email, role: user.role, phone: user.phone, wallet_balance: user.wallet_balance })} 
               }, '*');
               window.close();
@@ -527,6 +743,7 @@ app.get('/auth/google/callback', async (req, res) => {
       </html>
     `);
   } catch (error) {
+    Sentry.captureException(error);
     console.error('Google OAuth Error:', error);
     res.status(500).send('Authentication failed');
   }
@@ -548,6 +765,7 @@ const fixData = async () => {
     // Fix Machavaram minimum order if it exists and is too high
     await db.query("UPDATE delivery_zones SET min_order_amount = 200 WHERE name = 'Machavaram' AND min_order_amount >= 500");
   } catch (e) {
+    Sentry.captureException(e);
     console.error('Failed to update broken data:', e);
   }
 };
@@ -595,11 +813,19 @@ const checkAndRewardReferral = async (userId: number, client?: any) => {
     
     console.log(`[Referral] Credited ₹${rewardAmount} to users ${referredBy} and ${userId}`);
   } catch (error) {
+    Sentry.captureException(error);
     console.error('[Referral] Reward processing failed:', error);
   }
 };
 
-app.post('/api/auth/register', async (req, res) => {
+app.post('/api/auth/register', [
+  body('name').trim().notEmpty().withMessage('Name is required').isLength({ max: 100 }),
+  body('email').isEmail().normalizeEmail().withMessage('Valid email required'),
+  body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters')
+    .matches(/^(?=.*[A-Za-z])(?=.*\d)/).withMessage('Password must contain letters and numbers'),
+  body('phone').optional().matches(/^[6-9]\d{9}$/).withMessage('Valid 10-digit Indian mobile number required'),
+  validate
+], async (req, res) => {
   const { name, email, password, phone, referral_code } = req.body;
   const hashedPassword = bcrypt.hashSync(password, 10);
   try {
@@ -629,6 +855,7 @@ app.post('/api/auth/register', async (req, res) => {
       verificationToken: process.env.SMTP_USER ? undefined : verificationToken
     });
   } catch (e: any) {
+    Sentry.captureException(e);
     console.error('Registration error:', e);
     res.status(400).json({ error: 'Email already exists' });
   }
@@ -649,6 +876,7 @@ app.get('/api/auth/verify-email', async (req, res) => {
 
     res.json({ message: 'Email verified successfully! You can now login.' });
   } catch (error) {
+    Sentry.captureException(error);
     console.error('Email verification error:', error);
     res.status(500).json({ error: 'Failed to verify email' });
   }
@@ -675,6 +903,7 @@ app.post('/api/auth/resend-verification', async (req, res) => {
     await sendVerificationEmail(email, verificationToken);
     res.json({ message: 'Verification email resent successfully!' });
   } catch (error) {
+    Sentry.captureException(error);
     console.error('Resend verification error:', error);
     res.status(500).json({ error: 'Failed to resend verification email' });
   }
@@ -682,9 +911,27 @@ app.post('/api/auth/resend-verification', async (req, res) => {
 
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
+
+  // Check failed attempts in last 15 minutes
+  const attemptsRes = await db.query(
+    `SELECT COUNT(*) FROM login_attempts
+     WHERE email = $1 AND success = false
+     AND created_at > NOW() - INTERVAL '15 minutes'`,
+    [email]
+  );
+  if (parseInt(attemptsRes.rows[0].count) >= 5) {
+    return res.status(429).json({
+      error: 'Account temporarily locked due to too many failed login attempts. Please try again in 15 minutes.'
+    });
+  }
+
   const userRes = await db.query('SELECT * FROM users WHERE email = $1', [email]);
   const user = userRes.rows[0];
   if (!user || !bcrypt.compareSync(password, user.password)) {
+    await db.query(
+      'INSERT INTO login_attempts (email, ip_address, success) VALUES ($1, $2, $3)',
+      [email, req.ip, false]
+    );
     return res.status(401).json({ error: 'Invalid credentials' });
   }
 
@@ -697,8 +944,48 @@ app.post('/api/auth/login', async (req, res) => {
     });
   }
 
-  const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
-  res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role, phone: user.phone, wallet_balance: user.wallet_balance } });
+  await db.query(
+    'INSERT INTO login_attempts (email, ip_address, success) VALUES ($1, $2, $3)',
+    [email, req.ip, true]
+  );
+  // Clean up old successful attempts
+  await db.query(
+    'DELETE FROM login_attempts WHERE email = $1 AND success = true',
+    [email]
+  );
+
+  const { accessToken, refreshToken } = await generateTokens(user);
+  res.json({ token: accessToken, refreshToken, user: { id: user.id, name: user.name, email: user.email, role: user.role, phone: user.phone, wallet_balance: user.wallet_balance } });
+});
+
+app.post('/api/auth/refresh', async (req, res) => {
+  const { refreshToken } = req.body;
+  if (!refreshToken) return res.status(401).json({ error: 'Refresh token required' });
+  try {
+    const result = await db.query(
+      'SELECT rt.*, u.id, u.email, u.role FROM refresh_tokens rt JOIN users u ON rt.user_id = u.id WHERE rt.token = $1 AND rt.expires_at > NOW()',
+      [refreshToken]
+    );
+    if (!result.rows[0]) return res.status(401).json({ error: 'Invalid or expired refresh token' });
+    const user = result.rows[0];
+    const newAccessToken = jwt.sign(
+      { id: user.id, email: user.email, role: user.role },
+      JWT_SECRET,
+      { expiresIn: '15m' }
+    );
+    res.json({ token: newAccessToken });
+  } catch (e) {
+    Sentry.captureException(e);
+    res.status(401).json({ error: 'Token refresh failed' });
+  }
+});
+
+app.post('/api/auth/logout', authenticate, async (req: any, res) => {
+  const { refreshToken } = req.body;
+  if (refreshToken) {
+    await db.query('DELETE FROM refresh_tokens WHERE token = $1 AND user_id = $2', [refreshToken, req.user.id]);
+  }
+  res.json({ message: 'Logged out successfully' });
 });
 
 app.get('/api/user/profile', authenticate, async (req: any, res) => {
@@ -713,6 +1000,7 @@ app.patch('/api/user/profile', authenticate, async (req: any, res) => {
     const userRes = await db.query('SELECT id, name, email, phone, role, wallet_balance FROM users WHERE id = $1', [req.user.id]);
     res.json({ success: true, user: userRes.rows[0] });
   } catch (e) {
+    Sentry.captureException(e);
     res.status(500).json({ error: 'Failed to update profile' });
   }
 });
@@ -722,6 +1010,7 @@ app.get('/api/admin/farmers', authenticate, isAdmin, async (req, res) => {
     const farmersRes = await db.query('SELECT * FROM farmers ORDER BY name ASC');
     res.json(farmersRes.rows);
   } catch (error) {
+    Sentry.captureException(error);
     console.error('Error fetching admin farmers:', error);
     res.status(500).json({ error: 'Failed to fetch farmers' });
   }
@@ -738,6 +1027,7 @@ app.post('/api/admin/farmers', authenticate, isAdmin, async (req, res) => {
     );
     res.json({ success: true, id: result.rows[0].id });
   } catch (e) {
+    Sentry.captureException(e);
     res.status(500).json({ error: 'Failed to add farmer' });
   }
 });
@@ -753,6 +1043,7 @@ app.put('/api/admin/farmers/:id', authenticate, isAdmin, async (req, res) => {
     );
     res.json({ success: true });
   } catch (e) {
+    Sentry.captureException(e);
     res.status(500).json({ error: 'Failed to update farmer' });
   }
 });
@@ -810,6 +1101,7 @@ app.get('/api/categories', async (req, res) => {
     const categoriesRes = await db.query('SELECT * FROM categories ORDER BY id DESC');
     res.json(categoriesRes.rows);
   } catch (error) {
+    Sentry.captureException(error);
     console.error('Error fetching categories:', error);
     res.status(500).json({ error: 'Failed to fetch categories' });
   }
@@ -820,6 +1112,7 @@ app.get('/api/farmers', async (req, res) => {
     const farmersRes = await db.query('SELECT id, name, location FROM farmers ORDER BY name ASC');
     res.json(farmersRes.rows);
   } catch (error) {
+    Sentry.captureException(error);
     console.error('Error fetching farmers:', error);
     res.status(500).json({ error: 'Failed to fetch farmers' });
   }
@@ -863,6 +1156,7 @@ app.get('/api/products', async (req, res) => {
     const productsRes = await db.query(query, params);
     res.json(productsRes.rows);
   } catch (error) {
+    Sentry.captureException(error);
     console.error('Error fetching products:', error);
     res.status(500).json({ error: 'Failed to fetch products' });
   }
@@ -883,8 +1177,32 @@ app.get('/api/products/flash-sales', async (req, res) => {
     const productsRes = await db.query(query);
     res.json(productsRes.rows);
   } catch (error) {
+    Sentry.captureException(error);
     console.error('Error fetching flash sales:', error);
     res.status(500).json({ error: 'Failed to fetch flash sales' });
+  }
+});
+
+// Get all active bundles with products
+app.get('/api/bundles', async (req, res) => {
+  try {
+    const bundlesRes = await db.query(
+      `SELECT b.*, json_agg(json_build_object(
+        'product_id', p.id, 'name', p.name, 'price', p.price,
+        'image_url', p.image_url, 'unit', p.unit, 'quantity', bi.quantity
+      )) as items,
+      SUM(p.price * bi.quantity) as original_total
+      FROM bundles b
+      JOIN bundle_items bi ON bi.bundle_id = b.id
+      JOIN products p ON p.id = bi.product_id
+      WHERE b.is_active = true
+      GROUP BY b.id ORDER BY b.created_at DESC`
+    );
+    res.json(bundlesRes.rows);
+  } catch (e) {
+    Sentry.captureException(e);
+    console.error('Error fetching bundles:', e);
+    res.status(500).json({ error: 'Failed to fetch bundles' });
   }
 });
 
@@ -900,6 +1218,7 @@ app.get('/api/products/:id', async (req, res) => {
     if (!product) return res.status(404).json({ error: 'Product not found' });
     res.json(product);
   } catch (error) {
+    Sentry.captureException(error);
     console.error('Error fetching product detail:', error);
     res.status(500).json({ error: 'Failed to fetch product' });
   }
@@ -921,6 +1240,7 @@ app.get('/api/farmers/:id', async (req, res) => {
       total_products: parseInt(totalProductsRes.rows[0].count)
     });
   } catch (error) {
+    Sentry.captureException(error);
     console.error('Error fetching farmer detail:', error);
     res.status(500).json({ error: 'Failed to fetch farmer' });
   }
@@ -938,7 +1258,11 @@ app.get('/api/products/:id/reviews', async (req, res) => {
   res.json(reviewsRes.rows);
 });
 
-app.post('/api/products/:id/reviews', authenticate, async (req: any, res) => {
+app.post('/api/products/:id/reviews', authenticate, [
+  body('rating').isInt({ min: 1, max: 5 }).withMessage('Rating must be between 1 and 5'),
+  body('comment').optional().trim().isLength({ max: 500 }).withMessage('Comment must be under 500 characters'),
+  validate
+], async (req: any, res) => {
   const { rating, comment } = req.body;
   const productId = req.params.id;
   const userId = req.user.id;
@@ -1086,7 +1410,20 @@ app.get('/api/wallet/transactions', authenticate, async (req: any, res) => {
 });
 
 // Orders
-app.post('/api/orders', authenticate, async (req: any, res) => {
+app.post('/api/orders', authenticate, [
+  body('items').isArray({ min: 1 }).withMessage('Cart cannot be empty'),
+  body('items.*.product_id').isInt({ min: 1 }).withMessage('Invalid product'),
+  body('items.*.quantity').isInt({ min: 1, max: 100 }).withMessage('Invalid quantity'),
+  body('phone').matches(/^[6-9]\d{9}$/).withMessage('Valid 10-digit mobile number required'),
+  body('pincode').matches(/^\d{6}$/).withMessage('Valid 6-digit pincode required'),
+  body('payment_method').isIn(['cod', 'online']).withMessage('Invalid payment method'),
+  body('delivery_slot').isIn(['Morning (8am – 12pm)', 'Evening (4pm – 8pm)']).withMessage('Please select a delivery slot'),
+  body('house_no').trim().notEmpty().withMessage('House number required'),
+  body('street').trim().notEmpty().withMessage('Street required'),
+  body('city').trim().notEmpty().withMessage('City required'),
+  body('state').trim().notEmpty().withMessage('State required'),
+  validate
+], async (req: any, res) => {
   const { 
     items, total_amount, discount_amount, delivery_fee, final_amount, 
     payment_method, house_no, street, landmark, address, city, district, state, pincode, phone,
@@ -1178,6 +1515,7 @@ app.post('/api/orders', authenticate, async (req: any, res) => {
             }
           }
         } catch (err) {
+          Sentry.captureException(err);
           console.error('Failed to send admin low stock notification:', err);
         }
       }
@@ -1201,6 +1539,7 @@ app.post('/api/orders', authenticate, async (req: any, res) => {
       const message = `Hi ${userName}, thank you for your order #${orderId} from DDFF! We are processing it now. 🌾`;
       await sendWhatsAppNotification(phone, message);
     } catch (notifyError) {
+      Sentry.captureException(notifyError);
       console.error('Failed to send initial order notification:', notifyError);
     }
 
@@ -1227,6 +1566,7 @@ app.post('/api/orders', authenticate, async (req: any, res) => {
           key: process.env.RAZORPAY_KEY_ID
         });
       } catch (err: any) {
+        Sentry.captureException(err);
         console.error('Razorpay Order Error:', err);
         // We already committed the order in DB, but payment failed to initiate.
         // In a real app, you might want to handle this better (e.g. mark order as failed or allow retry)
@@ -1237,6 +1577,7 @@ app.post('/api/orders', authenticate, async (req: any, res) => {
     res.json({ success: true, orderId });
   } catch (e: any) {
     await client.query('ROLLBACK');
+    Sentry.captureException(e);
     console.error('Order error:', e);
     res.status(400).json({ error: e.message || 'Failed to place order' });
   } finally {
@@ -1414,6 +1755,7 @@ app.get('/api/orders/:id/invoice', async (req: any, res) => {
     doc.end();
 
   } catch (error) {
+    Sentry.captureException(error);
     console.error('Invoice generation error:', error);
     res.status(500).json({ error: 'Failed to generate invoice' });
   }
@@ -1449,6 +1791,7 @@ app.get('/api/user/previous-addresses', authenticate, async (req: any, res) => {
     `, [req.user.id]);
     res.json(addressesRes.rows);
   } catch (error) {
+    Sentry.captureException(error);
     console.error('Error fetching previous addresses:', error);
     res.status(500).json({ error: 'Failed to fetch previous addresses' });
   }
@@ -1459,12 +1802,18 @@ app.get('/api/user/saved-addresses', authenticate, async (req: any, res) => {
     const addressesRes = await db.query('SELECT * FROM saved_addresses WHERE user_id = $1 ORDER BY is_default DESC, created_at DESC', [req.user.id]);
     res.json(addressesRes.rows);
   } catch (error) {
+    Sentry.captureException(error);
     console.error('Error fetching saved addresses:', error);
     res.status(500).json({ error: 'Failed to fetch saved addresses' });
   }
 });
 
-app.post('/api/user/saved-addresses', authenticate, async (req: any, res) => {
+app.post('/api/user/saved-addresses', authenticate, [
+  body('label').trim().notEmpty().withMessage('Address label required'),
+  body('phone').matches(/^[6-9]\d{9}$/).withMessage('Valid mobile number required'),
+  body('pincode').matches(/^\d{6}$/).withMessage('Valid 6-digit pincode required'),
+  validate
+], async (req: any, res) => {
   const { label, house_no, street, landmark, address, city, district, state, pincode, phone, is_default } = req.body;
   try {
     // Validate delivery zone
@@ -1483,6 +1832,7 @@ app.post('/api/user/saved-addresses', authenticate, async (req: any, res) => {
     `, [req.user.id, label, house_no, street, landmark, address, city, district, state, pincode, phone, is_default || false]);
     res.json(result.rows[0]);
   } catch (error) {
+    Sentry.captureException(error);
     console.error('Error adding saved address:', error);
     res.status(500).json({ error: 'Failed to add saved address' });
   }
@@ -1510,6 +1860,7 @@ app.put('/api/user/saved-addresses/:id', authenticate, async (req: any, res) => 
     if (result.rowCount === 0) return res.status(404).json({ error: 'Address not found' });
     res.json(result.rows[0]);
   } catch (error) {
+    Sentry.captureException(error);
     console.error('Error updating saved address:', error);
     res.status(500).json({ error: 'Failed to update saved address' });
   }
@@ -1521,6 +1872,7 @@ app.delete('/api/user/saved-addresses/:id', authenticate, async (req: any, res) 
     if (result.rowCount === 0) return res.status(404).json({ error: 'Address not found' });
     res.json({ success: true });
   } catch (error) {
+    Sentry.captureException(error);
     console.error('Error deleting saved address:', error);
     res.status(500).json({ error: 'Failed to delete saved address' });
   }
@@ -1533,6 +1885,7 @@ app.post('/api/user/saved-addresses/:id/default', authenticate, async (req: any,
     if (result.rowCount === 0) return res.status(404).json({ error: 'Address not found' });
     res.json(result.rows[0]);
   } catch (error) {
+    Sentry.captureException(error);
     console.error('Error setting default address:', error);
     res.status(500).json({ error: 'Failed to set default address' });
   }
@@ -1678,6 +2031,7 @@ app.patch('/api/orders/:id/cancel', authenticate, async (req: any, res) => {
           final_refund_method = 'bank';
           whatsappMessage = `✅ Order #${orderId} cancelled. Your refund of ₹${order.final_amount} has been initiated to your original payment method. It will reflect in 5–7 business days.\n\nRefund ID: ${refund.id}\n\nKeep this for your records. 🙏`;
         } catch (razorpayError: any) {
+          Sentry.captureException(razorpayError);
           console.error('Razorpay refund error:', razorpayError);
           await client.query('ROLLBACK');
           return res.status(500).json({ 
@@ -1695,6 +2049,7 @@ app.patch('/api/orders/:id/cancel', authenticate, async (req: any, res) => {
       try {
         await sendWhatsAppNotification(order.phone, whatsappMessage);
       } catch (wsError) {
+        Sentry.captureException(wsError);
         console.error('WhatsApp notification error:', wsError);
       }
     }
@@ -1708,6 +2063,7 @@ app.patch('/api/orders/:id/cancel', authenticate, async (req: any, res) => {
 
   } catch (error: any) {
     if (client) await client.query('ROLLBACK');
+    Sentry.captureException(error);
     console.error('Order cancellation error:', error);
     res.status(500).json({ error: error.message || 'Failed to cancel order' });
   } finally {
@@ -1733,8 +2089,12 @@ app.post('/api/admin/products', authenticate, isAdmin, async (req, res) => {
     ]);
     const productId = result.rows[0].id;
     console.log('Product added successfully, ID:', productId);
+    
+    await auditLog(req, 'CREATE_PRODUCT', 'product', productId.toString(), null, req.body);
+    
     res.json({ success: true, id: productId });
   } catch (e) {
+    Sentry.captureException(e);
     console.error('Error adding product:', e);
     res.status(500).json({ error: 'Failed to add product' });
   }
@@ -1749,11 +2109,16 @@ app.delete('/api/admin/products/:id', authenticate, isAdmin, async (req, res) =>
   }
 
   try {
+    // Fetch old product for audit log
+    const oldProductRes = await db.query('SELECT * FROM products WHERE id = $1', [productId]);
+    const oldProduct = oldProductRes.rows[0];
+
     // Try hard delete first, if it fails due to FK, fall back to soft delete
     try {
       const result = await db.query('DELETE FROM products WHERE id = $1', [productId]);
       if (result.rowCount && result.rowCount > 0) {
         console.log(`[DeleteProduct] Hard delete successful for ID: ${productId}`);
+        await auditLog(req, 'DELETE_PRODUCT', 'product', productId.toString(), oldProduct, null);
         return res.json({ success: true, method: 'hard' });
       }
     } catch (fkError: any) {
@@ -1772,8 +2137,10 @@ app.delete('/api/admin/products/:id', authenticate, isAdmin, async (req, res) =>
     if (result.rowCount === 0) {
       return res.status(404).json({ error: 'Product not found' });
     }
+    await auditLog(req, 'DELETE_PRODUCT', 'product', productId.toString(), oldProduct, { is_deleted: true });
     res.json({ success: true, method: 'soft' });
   } catch (e: any) {
+    Sentry.captureException(e);
     console.error(`[DeleteProduct] Error:`, e);
     res.status(500).json({ error: 'Failed to delete product: ' + e.message });
   }
@@ -1806,6 +2173,64 @@ app.post('/api/admin/products/:id/delete', authenticate, isAdmin, async (req, re
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// Admin — create bundle
+app.post('/api/admin/bundles', authenticate, isAdmin, async (req: any, res) => {
+  const { name, description, image_url, bundle_price, items } = req.body;
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    const bundleRes = await client.query(
+      'INSERT INTO bundles (name, description, image_url, bundle_price) VALUES ($1,$2,$3,$4) RETURNING *',
+      [name, description, image_url, bundle_price]
+    );
+    const bundleId = bundleRes.rows[0].id;
+    for (const item of items) {
+      await client.query(
+        'INSERT INTO bundle_items (bundle_id, product_id, quantity) VALUES ($1,$2,$3)',
+        [bundleId, item.product_id, item.quantity]
+      );
+    }
+    await client.query('COMMIT');
+    
+    await auditLog(req, 'CREATE_BUNDLE', 'bundle', bundleId.toString(), null, req.body);
+    
+    res.json(bundleRes.rows[0]);
+  } catch (e) {
+    await client.query('ROLLBACK');
+    Sentry.captureException(e);
+    console.error('Error creating bundle:', e);
+    res.status(500).json({ error: 'Failed to create bundle' });
+  } finally { client.release(); }
+});
+
+// Admin — toggle active / delete bundle
+app.patch('/api/admin/bundles/:id', authenticate, isAdmin, async (req: any, res) => {
+  const { is_active } = req.body;
+  const bundleId = req.params.id;
+  
+  const oldBundleRes = await db.query('SELECT * FROM bundles WHERE id = $1', [bundleId]);
+  const oldBundle = oldBundleRes.rows[0];
+
+  await db.query('UPDATE bundles SET is_active = $1 WHERE id = $2', [is_active, bundleId]);
+  
+  await auditLog(req, 'UPDATE_BUNDLE', 'bundle', bundleId, oldBundle, { is_active });
+  
+  res.json({ success: true });
+});
+
+app.delete('/api/admin/bundles/:id', authenticate, isAdmin, async (req: any, res) => {
+  const bundleId = req.params.id;
+  
+  const oldBundleRes = await db.query('SELECT * FROM bundles WHERE id = $1', [bundleId]);
+  const oldBundle = oldBundleRes.rows[0];
+
+  await db.query('DELETE FROM bundles WHERE id = $1', [bundleId]);
+  
+  await auditLog(req, 'DELETE_BUNDLE', 'bundle', bundleId, oldBundle, null);
+  
+  res.json({ success: true });
 });
 
 app.put('/api/admin/products/:id', authenticate, isAdmin, async (req, res) => {
@@ -1860,9 +2285,11 @@ app.put('/api/admin/products/:id', authenticate, isAdmin, async (req, res) => {
     }
 
     await client.query('COMMIT');
+    await auditLog(req, 'UPDATE_PRODUCT', 'product', productId.toString(), oldProduct, req.body);
     res.json({ success: true });
   } catch (e) {
     await client.query('ROLLBACK');
+    Sentry.captureException(e);
     console.error('Error updating product:', e);
     res.status(500).json({ error: 'Failed to update product' });
   } finally {
@@ -1910,6 +2337,7 @@ app.patch('/api/admin/products/bulk-stock', authenticate, isAdmin, async (req, r
     res.json({ success: true, updated: ids.length });
   } catch (e) {
     await client.query('ROLLBACK');
+    Sentry.captureException(e);
     console.error('Bulk stock update error:', e);
     res.status(500).json({ error: 'Failed to bulk update stock' });
   } finally {
@@ -1955,9 +2383,61 @@ app.get('/api/admin/orders', authenticate, isAdmin, async (req, res) => {
   res.json(ordersRes.rows);
 });
 
-app.get('/api/admin/users', authenticate, isAdmin, async (req, res) => {
-  const usersRes = await db.query('SELECT id, name, email, phone, role, created_at FROM users ORDER BY created_at DESC');
-  res.json(usersRes.rows);
+app.get('/api/admin/audit-logs', authenticate, isAdmin, async (req: any, res) => {
+  try {
+    const { page = 1, action, from, to } = req.query;
+    const limit = 50;
+    const offset = (Number(page) - 1) * limit;
+    let query = `SELECT * FROM audit_logs WHERE 1=1`;
+    const params: any[] = [];
+    let paramCount = 1;
+    if (action) { query += ` AND action = $${paramCount++}`; params.push(action); }
+    if (from) { query += ` AND created_at >= $${paramCount++}`; params.push(from); }
+    if (to) { query += ` AND created_at <= $${paramCount++}`; params.push(to); }
+    query += ` ORDER BY created_at DESC LIMIT $${paramCount++} OFFSET $${paramCount++}`;
+    params.push(limit, offset);
+    const result = await db.query(query, params);
+    res.json(result.rows);
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to fetch audit logs' });
+  }
+});
+
+app.patch('/api/admin/users/:id/wallet', authenticate, isAdmin, async (req: any, res) => {
+  const { amount, description } = req.body;
+  const userId = req.params.id;
+  
+  if (typeof amount !== 'number') return res.status(400).json({ error: 'Invalid amount' });
+  
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    
+    const userRes = await client.query('SELECT wallet_balance FROM users WHERE id = $1', [userId]);
+    if (userRes.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const oldBalance = Number(userRes.rows[0].wallet_balance);
+    const newBalance = oldBalance + amount;
+    
+    await client.query('UPDATE users SET wallet_balance = $1 WHERE id = $2', [newBalance, userId]);
+    await client.query('INSERT INTO wallet_transactions (user_id, amount, type, description) VALUES ($1, $2, $3, $4)', [
+      userId, Math.abs(amount), amount >= 0 ? 'credit' : 'debit', description || 'Admin adjustment'
+    ]);
+    
+    await auditLog(req, 'CREDIT_WALLET', 'user', userId, { balance: oldBalance }, { balance: newBalance });
+    
+    await client.query('COMMIT');
+    res.json({ success: true, newBalance });
+  } catch (e) {
+    await client.query('ROLLBACK');
+    Sentry.captureException(e);
+    console.error('Wallet credit error:', e);
+    res.status(500).json({ error: 'Failed to credit wallet' });
+  } finally {
+    client.release();
+  }
 });
 
 app.get('/api/admin/delivery-boys', authenticate, isAdmin, async (req, res) => {
@@ -1977,8 +2457,11 @@ app.post('/api/admin/delivery-boys', authenticate, isAdmin, async (req, res) => 
       "INSERT INTO users (name, email, password, phone, role) VALUES ($1, $2, $3, $4, 'delivery_boy') RETURNING id",
       [name, email, hashedPassword, phone]
     );
-    res.json({ success: true, id: result.rows[0].id });
+    const newStaffId = result.rows[0].id;
+    await auditLog(req, 'CREATE_DELIVERY_STAFF', 'user', newStaffId.toString(), null, { name, email, phone });
+    res.json({ success: true, id: newStaffId });
   } catch (e: any) {
+    Sentry.captureException(e);
     console.error('Error adding delivery boy:', e);
     res.status(400).json({ error: 'Email already exists or invalid data' });
   }
@@ -1995,6 +2478,7 @@ app.patch('/api/admin/delivery-boys/:id', authenticate, isAdmin, async (req, res
     );
     res.json({ success: true });
   } catch (e) {
+    Sentry.captureException(e);
     res.status(500).json({ error: 'Failed to update delivery staff' });
   }
 });
@@ -2011,6 +2495,7 @@ app.delete('/api/admin/delivery-boys/:id', authenticate, isAdmin, async (req, re
     await db.query("DELETE FROM users WHERE id = $1 AND role = 'delivery_boy'", [id]);
     res.json({ success: true });
   } catch (e) {
+    Sentry.captureException(e);
     res.status(500).json({ error: 'Failed to delete delivery staff' });
   }
 });
@@ -2027,6 +2512,7 @@ app.patch('/api/admin/orders/:id/assign', authenticate, isAdmin, async (req, res
     
     res.json({ success: true });
   } catch (e) {
+    Sentry.captureException(e);
     res.status(500).json({ error: 'Failed to assign delivery boy' });
   }
 });
@@ -2045,6 +2531,7 @@ app.post('/api/admin/categories', authenticate, isAdmin, async (req, res) => {
     console.log(`[Admin] Category added successfully with ID: ${result.rows[0].id}`);
     res.json({ success: true, id: result.rows[0].id });
   } catch (e: any) {
+    Sentry.captureException(e);
     console.error('[Admin] Error adding category:', e.message);
     res.status(400).json({ error: 'Category already exists or invalid name' });
   }
@@ -2065,6 +2552,7 @@ app.delete('/api/admin/categories/:id', authenticate, isAdmin, async (req, res) 
     await db.query('DELETE FROM categories WHERE id = $1', [categoryId]);
     res.json({ success: true });
   } catch (e: any) {
+    Sentry.captureException(e);
     console.error('Delete category error:', e);
     res.status(500).json({ error: `Failed to delete category: ${e.message}` });
   }
@@ -2085,6 +2573,7 @@ app.post('/api/admin/categories/:id/delete', authenticate, isAdmin, async (req, 
     await db.query('DELETE FROM categories WHERE id = $1', [categoryId]);
     res.json({ success: true });
   } catch (e: any) {
+    Sentry.captureException(e);
     console.error('Delete category error (POST fallback):', e);
     res.status(500).json({ error: `Failed to delete category: ${e.message}` });
   }
@@ -2121,6 +2610,7 @@ app.patch('/api/admin/categories/:id', authenticate, isAdmin, async (req, res) =
     if (result.rowCount === 0) return res.status(404).json({ error: 'Category not found' });
     res.json({ success: true, category: result.rows[0] });
   } catch (e) {
+    Sentry.captureException(e);
     console.error('Update category error:', e);
     res.status(500).json({ error: 'Failed to update category' });
   }
@@ -2130,10 +2620,15 @@ app.patch('/api/admin/orders/:id/status', authenticate, isAdmin, async (req, res
   const { status } = req.body;
   const orderId = req.params.id;
   
+  const oldOrderRes = await db.query('SELECT status FROM orders WHERE id = $1', [orderId]);
+  const oldStatus = oldOrderRes.rows[0]?.status;
+
   await db.query('UPDATE orders SET status = $1 WHERE id = $2', [status, orderId]);
   
   // Notify user of status update
   await notifyOrderStatusUpdate(Number(orderId), status);
+  
+  await auditLog(req, 'UPDATE_ORDER_STATUS', 'order', orderId, { status: oldStatus }, { status: status });
   
   res.json({ success: true });
 });
@@ -2166,10 +2661,73 @@ app.patch('/api/delivery/orders/:id/status', authenticate, isDeliveryBoy, async 
 
   await db.query('UPDATE orders SET status = $1 WHERE id = $2', [status, orderId]);
   
+  // Save the delivery fee earned and timestamp when delivered
+  if (status === 'delivered') {
+    const zoneRes = await db.query(
+      'SELECT dz.delivery_fee FROM orders o LEFT JOIN delivery_zones dz ON o.pincode = dz.pincode WHERE o.id = $1',
+      [orderId]
+    );
+    const feeEarned = zoneRes.rows[0]?.delivery_fee || 0;
+    await db.query(
+      'UPDATE orders SET delivery_fee_earned = $1, delivered_at = NOW(), assigned_delivery_boy = $2 WHERE id = $3',
+      [feeEarned, req.user.id, orderId]
+    );
+  }
+
   // Notify user of status update
   await notifyOrderStatusUpdate(Number(orderId), status);
   
   res.json({ success: true });
+});
+
+app.get('/api/delivery/earnings', authenticate, isDeliveryBoy, async (req: any, res) => {
+  try {
+    const userId = req.user.id;
+    const [today, week, month, total, recent] = await Promise.all([
+      db.query(
+        `SELECT COALESCE(SUM(delivery_fee_earned), 0) as amount, COUNT(*) as count
+         FROM orders WHERE assigned_delivery_boy = $1
+         AND status = 'delivered' AND delivered_at::date = CURRENT_DATE`,
+        [userId]
+      ),
+      db.query(
+        `SELECT COALESCE(SUM(delivery_fee_earned), 0) as amount, COUNT(*) as count
+         FROM orders WHERE assigned_delivery_boy = $1
+         AND status = 'delivered'
+         AND delivered_at >= DATE_TRUNC('week', CURRENT_DATE)`,
+        [userId]
+      ),
+      db.query(
+        `SELECT COALESCE(SUM(delivery_fee_earned), 0) as amount, COUNT(*) as count
+         FROM orders WHERE assigned_delivery_boy = $1
+         AND status = 'delivered'
+         AND delivered_at >= DATE_TRUNC('month', CURRENT_DATE)`,
+        [userId]
+      ),
+      db.query(
+        `SELECT COALESCE(SUM(delivery_fee_earned), 0) as amount, COUNT(*) as count
+         FROM orders WHERE assigned_delivery_boy = $1 AND status = 'delivered'`,
+        [userId]
+      ),
+      db.query(
+        `SELECT id, city, delivery_fee_earned, delivered_at
+         FROM orders WHERE assigned_delivery_boy = $1
+         AND status = 'delivered'
+         ORDER BY delivered_at DESC LIMIT 10`,
+        [userId]
+      )
+    ]);
+    res.json({
+      today: { amount: today.rows[0].amount, count: today.rows[0].count },
+      week: { amount: week.rows[0].amount, count: week.rows[0].count },
+      month: { amount: month.rows[0].amount, count: month.rows[0].count },
+      total: { amount: total.rows[0].amount, count: total.rows[0].count },
+      recent: recent.rows
+    });
+  } catch (e) {
+    Sentry.captureException(e);
+    res.status(500).json({ error: 'Failed to fetch earnings' });
+  }
 });
 
 app.post('/api/delivery/orders/:id/proof', authenticate, isDeliveryBoy, upload.single('proof'), async (req: any, res) => {
@@ -2190,21 +2748,26 @@ app.post('/api/delivery/orders/:id/proof', authenticate, isDeliveryBoy, upload.s
       }
     }
 
-    const proofPath = `/uploads/proofs/${req.file.filename}`;
-    await db.query('UPDATE orders SET status = $1, proof_of_delivery_image = $2 WHERE id = $3', ['delivered', proofPath, orderId]);
+    const photoUrl = await uploadProofPhoto(req.file);
+    await db.query('UPDATE orders SET status = $1, proof_of_delivery_image = $2 WHERE id = $3', ['delivered', photoUrl, orderId]);
     
     // Notify user of delivery
     await notifyOrderStatusUpdate(Number(orderId), 'delivered');
     
-    res.json({ success: true, proof_image: proofPath });
+    res.json({ success: true, proof_image: photoUrl });
   } catch (e) {
+    Sentry.captureException(e);
     console.error('Error uploading proof:', e);
     res.status(500).json({ error: 'Failed to upload proof of delivery' });
   }
 });
 
 // Promo Codes
-app.post('/api/promo/validate', async (req, res) => {
+app.post('/api/promo/validate', [
+  body('code').trim().notEmpty().toUpperCase().withMessage('Promo code required'),
+  body('amount').isFloat({ min: 0 }).withMessage('Invalid amount'),
+  validate
+], async (req, res) => {
   const { code, amount, items } = req.body;
   const promoRes = await db.query('SELECT * FROM promo_codes WHERE code = $1 AND is_active = true', [code]);
   const promo = promoRes.rows[0];
@@ -2242,6 +2805,7 @@ app.get('/api/delivery-zones', async (req, res) => {
     const zonesRes = await db.query('SELECT * FROM delivery_zones WHERE is_active = true ORDER BY name ASC');
     res.json(zonesRes.rows);
   } catch (error) {
+    Sentry.captureException(error);
     res.status(500).json({ error: 'Failed to fetch delivery zones' });
   }
 });
@@ -2251,6 +2815,7 @@ app.get('/api/admin/delivery-zones', authenticate, isAdmin, async (req, res) => 
     const zonesRes = await db.query('SELECT * FROM delivery_zones ORDER BY name ASC');
     res.json(zonesRes.rows);
   } catch (error) {
+    Sentry.captureException(error);
     res.status(500).json({ error: 'Failed to fetch delivery zones' });
   }
 });
@@ -2266,6 +2831,7 @@ app.post('/api/admin/delivery-zones', authenticate, isAdmin, async (req, res) =>
     );
     res.json(result.rows[0]);
   } catch (error) {
+    Sentry.captureException(error);
     res.status(500).json({ error: 'Failed to add delivery zone' });
   }
 });
@@ -2289,11 +2855,18 @@ app.patch('/api/admin/delivery-zones/:id', authenticate, isAdmin, async (req, re
 
     params.push(id);
     const query = `UPDATE delivery_zones SET ${updates.join(', ')} WHERE id = $${paramIdx} RETURNING *`;
-    const result = await db.query(query, params);
+    
+    const oldZoneRes = await db.query('SELECT * FROM delivery_zones WHERE id = $1', [id]);
+    const oldZone = oldZoneRes.rows[0];
 
+    const result = await db.query(query, params);
     if (result.rowCount === 0) return res.status(404).json({ error: 'Delivery zone not found' });
+    
+    await auditLog(req, 'UPDATE_DELIVERY_ZONE', 'delivery_zone', id, oldZone, result.rows[0]);
+    
     res.json(result.rows[0]);
   } catch (error) {
+    Sentry.captureException(error);
     res.status(500).json({ error: 'Failed to update delivery zone' });
   }
 });
@@ -2304,6 +2877,7 @@ app.delete('/api/admin/delivery-zones/:id', authenticate, isAdmin, async (req, r
     if (result.rowCount === 0) return res.status(404).json({ error: 'Delivery zone not found' });
     res.json({ success: true });
   } catch (error) {
+    Sentry.captureException(error);
     res.status(500).json({ error: 'Failed to delete delivery zone' });
   }
 });
@@ -2322,6 +2896,7 @@ app.get('/api/promo-codes/active', async (req, res) => {
     `);
     res.json(result.rows);
   } catch (error) {
+    Sentry.captureException(error);
     console.error('Error fetching active promo codes:', error);
     res.status(500).json({ error: 'Failed to fetch active promo codes' });
   }
@@ -2338,6 +2913,7 @@ app.get('/api/admin/promo-codes', authenticate, isAdmin, async (req, res) => {
     `);
     res.json(result.rows);
   } catch (error) {
+    Sentry.captureException(error);
     res.status(500).json({ error: 'Failed to fetch promo codes' });
   }
 });
@@ -2349,8 +2925,11 @@ app.post('/api/admin/promo-codes', authenticate, isAdmin, async (req, res) => {
       'INSERT INTO promo_codes (code, discount_percent, discount_amount, min_order, expiry_date, max_uses, is_active, product_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
       [code, discount_percent, discount_amount, min_order, expiry_date, max_uses, is_active, product_id || null]
     );
-    res.status(201).json(result.rows[0]);
+    const newPromo = result.rows[0];
+    await auditLog(req, 'CREATE_PROMO', 'promo_code', newPromo.id.toString(), null, newPromo);
+    res.status(201).json(newPromo);
   } catch (error) {
+    Sentry.captureException(error);
     console.error('Error creating promo code:', error);
     res.status(500).json({ error: 'Failed to create promo code' });
   }
@@ -2367,6 +2946,7 @@ app.put('/api/admin/promo-codes/:id', authenticate, isAdmin, async (req, res) =>
     if (result.rowCount === 0) return res.status(404).json({ error: 'Promo code not found' });
     res.json(result.rows[0]);
   } catch (error) {
+    Sentry.captureException(error);
     console.error('Error updating promo code:', error);
     res.status(500).json({ error: 'Failed to update promo code' });
   }
@@ -2375,10 +2955,17 @@ app.put('/api/admin/promo-codes/:id', authenticate, isAdmin, async (req, res) =>
 app.delete('/api/admin/promo-codes/:id', authenticate, isAdmin, async (req, res) => {
   const { id } = req.params;
   try {
+    const oldPromoRes = await db.query('SELECT * FROM promo_codes WHERE id = $1', [id]);
+    const oldPromo = oldPromoRes.rows[0];
+
     const result = await db.query('DELETE FROM promo_codes WHERE id = $1', [id]);
     if (result.rowCount === 0) return res.status(404).json({ error: 'Promo code not found' });
+    
+    await auditLog(req, 'DELETE_PROMO', 'promo_code', id, oldPromo, null);
+    
     res.json({ message: 'Promo code deleted successfully' });
   } catch (error) {
+    Sentry.captureException(error);
     res.status(500).json({ error: 'Failed to delete promo code' });
   }
 });
@@ -2394,12 +2981,14 @@ app.patch('/api/admin/promo-codes/:id', authenticate, isAdmin, async (req, res) 
     if (result.rowCount === 0) return res.status(404).json({ error: 'Promo code not found' });
     res.json(result.rows[0]);
   } catch (error) {
+    Sentry.captureException(error);
     res.status(500).json({ error: 'Failed to toggle promo code status' });
   }
 });
 
 // Global Error Handler
 app.use((err: any, req: any, res: any, next: any) => {
+  Sentry.captureException(err);
   console.error('Global Error Handler:', err);
   res.status(err.status || 500).json({ 
     error: err.message || 'Internal Server Error',
@@ -2407,15 +2996,23 @@ app.use((err: any, req: any, res: any, next: any) => {
   });
 });
 
+// Explicit 404 for API routes to prevent HTML fallback
+app.use('/api/*', (req, res) => {
+  console.warn(`[API] 404 Not Found: ${req.method} ${req.originalUrl}`);
+  res.status(404).json({ error: `API route not found: ${req.originalUrl}` });
+});
+
 // --- Vite Setup ---
 async function startServer() {
   console.log('[Server] Starting initialization...');
   
   process.on('uncaughtException', (err) => {
+    Sentry.captureException(err);
     console.error('[Server] Uncaught Exception:', err);
   });
   
   process.on('unhandledRejection', (reason, promise) => {
+    Sentry.captureException(reason);
     console.error('[Server] Unhandled Rejection at:', promise, 'reason:', reason);
   });
 
@@ -2428,17 +3025,13 @@ async function startServer() {
     }).then(() => {
       console.log('[Auth] Data verified');
     }).catch(dbError => {
+      Sentry.captureException(dbError);
       console.error('[DB] Critical error during initialization:', dbError);
     });
   } catch (startupError) {
+    Sentry.captureException(startupError);
     console.error('[Server] Error during startup sequence:', startupError);
   }
-
-  // Explicit 404 for API routes to prevent HTML fallback
-  app.use('/api/*', (req, res) => {
-    console.warn(`[API] 404 Not Found: ${req.method} ${req.originalUrl}`);
-    res.status(404).json({ error: `API route not found: ${req.originalUrl}` });
-  });
 
   if (process.env.NODE_ENV !== 'production') {
     console.log('[Vite] Starting development server...');
@@ -2450,6 +3043,7 @@ async function startServer() {
       app.use(vite.middlewares);
       console.log('[Vite] Middleware integrated');
     } catch (viteError) {
+      Sentry.captureException(viteError);
       console.error('[Vite] Failed to start Vite server:', viteError);
     }
   } else {
@@ -2460,10 +3054,45 @@ async function startServer() {
     });
   }
 
+  Sentry.setupExpressErrorHandler(app);
+
+  app.use((err: any, req: any, res: any, next: any) => {
+    console.error('[Error]', err);
+    res.status(err.status || 500).json({
+      error: process.env.NODE_ENV === 'production'
+        ? 'Something went wrong. Our team has been notified.'
+        : err.message
+    });
+  });
+
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`[Server] Listening on http://0.0.0.0:${PORT}`);
     console.log(`[Server] Environment: ${process.env.NODE_ENV || 'development'}`);
   });
+
+  // Daily cleanup of old login attempts
+  setInterval(async () => {
+    try {
+      await db.query(
+        "DELETE FROM login_attempts WHERE created_at < NOW() - INTERVAL '7 days'"
+      );
+      console.log('[Cleanup] Old login attempts deleted');
+    } catch (e) {
+      Sentry.captureException(e);
+      console.error('[Cleanup] Failed to clean login attempts:', e);
+    }
+  }, 24 * 60 * 60 * 1000);
+
+  // Daily cleanup of expired refresh tokens
+  setInterval(async () => {
+    try {
+      await db.query("DELETE FROM refresh_tokens WHERE expires_at < NOW()");
+      console.log('[Cleanup] Expired refresh tokens deleted');
+    } catch (e) {
+      Sentry.captureException(e);
+      console.error('[Cleanup] Failed to clean refresh tokens:', e);
+    }
+  }, 24 * 60 * 60 * 1000);
 }
 
 startServer();

@@ -252,6 +252,62 @@ const initDb = async () => {
         created_at TIMESTAMP DEFAULT NOW(),
         UNIQUE(user_id, product_id)
       );
+
+      CREATE TABLE IF NOT EXISTS login_attempts (
+        id SERIAL PRIMARY KEY,
+        email TEXT NOT NULL,
+        ip_address TEXT,
+        success BOOLEAN DEFAULT false,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_login_attempts_email ON login_attempts(email);
+      CREATE INDEX IF NOT EXISTS idx_login_attempts_created ON login_attempts(created_at);
+
+      CREATE TABLE IF NOT EXISTS audit_logs (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id),
+        user_email TEXT NOT NULL,
+        action TEXT NOT NULL,
+        resource_type TEXT,
+        resource_id TEXT,
+        old_value JSONB,
+        new_value JSONB,
+        ip_address TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_user ON audit_logs(user_id);
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs(created_at);
+
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_fee_earned DECIMAL(10,2) DEFAULT 0;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS assigned_delivery_boy INTEGER REFERENCES users(id);
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMP DEFAULT NULL;
+
+      CREATE TABLE IF NOT EXISTS bundles (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        image_url TEXT,
+        bundle_price DECIMAL(10,2) NOT NULL,
+        is_active BOOLEAN DEFAULT true,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS bundle_items (
+        id SERIAL PRIMARY KEY,
+        bundle_id INTEGER REFERENCES bundles(id) ON DELETE CASCADE,
+        product_id INTEGER REFERENCES products(id),
+        quantity INTEGER DEFAULT 1
+      );
+
+      CREATE TABLE IF NOT EXISTS refresh_tokens (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        token TEXT UNIQUE NOT NULL,
+        expires_at TIMESTAMP NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_refresh_tokens_token ON refresh_tokens(token);
+      CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON refresh_tokens(user_id);
     `);
 
     // Seed Data

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Package, MapPin, Phone, Truck, CheckCircle2, Clock, ChevronRight, LogOut, Camera, X, Loader2, Upload } from 'lucide-react';
+import { Package, MapPin, Phone, Truck, CheckCircle2, Clock, ChevronRight, LogOut, Camera, X, Loader2, Upload, Wallet, TrendingUp, Calendar, ChevronDown, ChevronUp } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
@@ -7,7 +7,10 @@ import { motion, AnimatePresence } from 'motion/react';
 export default function DeliveryDashboard() {
   const { user, token, logout } = useAuth();
   const [orders, setOrders] = useState<any[]>([]);
+  const [earnings, setEarnings] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [earningsLoading, setEarningsLoading] = useState(true);
+  const [showRecentEarnings, setShowRecentEarnings] = useState(false);
   const [updating, setUpdating] = useState<number | null>(null);
   const [showPodModal, setShowPodModal] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
@@ -32,8 +35,26 @@ export default function DeliveryDashboard() {
     }
   };
 
+  const fetchEarnings = async () => {
+    setEarningsLoading(true);
+    try {
+      const res = await fetch('/api/delivery/earnings', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      setEarnings(data);
+    } catch (e) {
+      console.error('Failed to fetch earnings:', e);
+    } finally {
+      setEarningsLoading(false);
+    }
+  };
+
   useEffect(() => {
-    if (token) fetchOrders();
+    if (token) {
+      fetchOrders();
+      fetchEarnings();
+    }
   }, [token]);
 
   const updateStatus = async (orderId: number, status: string) => {
@@ -49,6 +70,7 @@ export default function DeliveryDashboard() {
       });
       if (res.ok) {
         fetchOrders();
+        fetchEarnings();
       }
     } catch (e) {
       console.error('Failed to update status:', e);
@@ -91,6 +113,7 @@ export default function DeliveryDashboard() {
         setPodImage(null);
         setPodPreview(null);
         fetchOrders();
+        fetchEarnings();
       } else {
         const error = await res.json();
         alert(error.error || 'Failed to upload proof');
@@ -115,6 +138,87 @@ export default function DeliveryDashboard() {
 
   return (
     <div className="max-w-md mx-auto space-y-8 pb-20">
+      {/* Earnings Section */}
+      <div className="bg-white dark:bg-slate-800 p-6 rounded-3xl border border-black/5 dark:border-white/10 shadow-sm space-y-6">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-bold text-gray-900 dark:text-slate-100 flex items-center space-x-2">
+            <TrendingUp className="w-5 h-5 text-emerald-500" />
+            <span>Your Earnings</span>
+          </h2>
+          {earningsLoading && <Loader2 className="w-4 h-4 animate-spin text-gray-400" />}
+        </div>
+
+        {earningsLoading && !earnings ? (
+          <div className="grid grid-cols-3 gap-3 animate-pulse">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="h-20 bg-gray-100 dark:bg-slate-700 rounded-2xl" />
+            ))}
+          </div>
+        ) : earnings ? (
+          <div className="space-y-6">
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-emerald-50 dark:bg-emerald-900/20 p-4 rounded-2xl text-center border border-emerald-100 dark:border-emerald-900/30">
+                <p className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Today</p>
+                <p className="text-lg font-bold text-emerald-700 dark:text-emerald-300">₹{earnings.today.amount}</p>
+              </div>
+              <div className="bg-emerald-50 dark:bg-emerald-900/20 p-4 rounded-2xl text-center border border-emerald-100 dark:border-emerald-900/30">
+                <p className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Week</p>
+                <p className="text-lg font-bold text-emerald-700 dark:text-emerald-300">₹{earnings.week.amount}</p>
+              </div>
+              <div className="bg-emerald-50 dark:bg-emerald-900/20 p-4 rounded-2xl text-center border border-emerald-100 dark:border-emerald-900/30">
+                <p className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Month</p>
+                <p className="text-lg font-bold text-emerald-700 dark:text-emerald-300">₹{earnings.month.amount}</p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-center space-x-2 text-sm font-bold text-gray-700 dark:text-slate-300">
+              <span className="text-xl">🚴</span>
+              <span>{earnings.total.count} total deliveries completed</span>
+            </div>
+
+            <div className="border-t border-black/5 dark:border-white/5 pt-4">
+              <button 
+                onClick={() => setShowRecentEarnings(!showRecentEarnings)}
+                className="w-full flex items-center justify-between text-sm font-bold text-gray-500 dark:text-slate-400 hover:text-gray-700 transition-colors"
+              >
+                <span>Recent Earnings</span>
+                {showRecentEarnings ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              </button>
+
+              <AnimatePresence>
+                {showRecentEarnings && (
+                  <motion.div 
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="pt-4 space-y-3">
+                      {earnings.recent.length === 0 ? (
+                        <p className="text-xs text-center text-gray-400 py-4">No recent earnings found.</p>
+                      ) : (
+                        earnings.recent.map((log: any) => (
+                          <div key={log.id} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-slate-900/50 rounded-xl border border-black/5 dark:border-white/5">
+                            <div className="flex flex-col">
+                              <span className="text-[10px] font-bold text-gray-400 uppercase">#DDFF-{log.id.toString().padStart(4, '0')}</span>
+                              <span className="text-xs font-bold text-gray-700 dark:text-slate-200">{log.city}</span>
+                            </div>
+                            <div className="text-right">
+                              <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">₹{log.delivery_fee_earned}</span>
+                              <p className="text-[10px] text-gray-400">{new Date(log.delivered_at).toLocaleDateString()}</p>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </div>
+        ) : null}
+      </div>
+
       <div className="flex items-center justify-between bg-white dark:bg-slate-800 p-6 rounded-3xl border border-black/5 dark:border-white/10 shadow-sm">
         <div className="flex items-center space-x-4">
           <div className="bg-[#D4820A] w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-xl">

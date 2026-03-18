@@ -28,6 +28,36 @@ export default function Login() {
   const [showDebug, setShowDebug] = useState(false);
   const [testResult, setTestResult] = useState<{status: string, message: string, error?: string} | null>(null);
   const [testing, setTesting] = useState(false);
+  const [lockoutTime, setLockoutTime] = useState<number | null>(() => {
+    const saved = localStorage.getItem('lockout_time');
+    if (saved) {
+      const time = parseInt(saved);
+      if (time > Date.now()) return time;
+    }
+    return null;
+  });
+
+  React.useEffect(() => {
+    if (!lockoutTime) return;
+
+    const interval = setInterval(() => {
+      if (lockoutTime <= Date.now()) {
+        setLockoutTime(null);
+        localStorage.removeItem('lockout_time');
+        clearInterval(interval);
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [lockoutTime]);
+
+  const formatTime = (ms: number) => {
+    const totalSeconds = Math.ceil((ms - Date.now()) / 1000);
+    if (totalSeconds <= 0) return '0:00';
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -43,8 +73,8 @@ export default function Login() {
   React.useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
-        const { token, user } = event.data;
-        login(token, user);
+        const { token, refreshToken, user } = event.data;
+        login(token, refreshToken, user);
         navigate(user.role === 'admin' ? '/admin' : '/');
       }
     };
@@ -78,9 +108,14 @@ export default function Login() {
       });
       const data = await res.json();
       if (res.ok) {
-        login(data.token, data.user);
+        login(data.token, data.refreshToken, data.user);
         navigate(data.user.role === 'admin' ? '/admin' : '/');
       } else {
+        if (res.status === 429) {
+          const time = Date.now() + 15 * 60 * 1000;
+          setLockoutTime(time);
+          localStorage.setItem('lockout_time', time.toString());
+        }
         if (data.requiresVerification) {
           setRequiresVerification(true);
           setVerificationToken(data.verificationToken || '');
@@ -128,7 +163,13 @@ export default function Login() {
       </div>
 
       <form onSubmit={handleSubmit} className="bg-white dark:bg-slate-800 p-8 rounded-3xl border border-black/5 dark:border-white/10 shadow-sm space-y-6 transition-colors">
-        {error && (
+        {lockoutTime && (
+          <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 p-4 rounded-xl text-sm font-bold text-center animate-pulse">
+            Account locked. Try again in {formatTime(lockoutTime)}
+          </div>
+        )}
+
+        {error && !lockoutTime && (
           <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 p-4 rounded-xl text-sm font-medium space-y-3">
             <p>{error}</p>
             {requiresVerification && (
@@ -211,10 +252,10 @@ export default function Login() {
 
         <button 
           type="submit"
-          disabled={loading}
+          disabled={loading || !!lockoutTime}
           className="w-full bg-[#D4820A] text-white py-4 rounded-2xl font-bold text-lg flex items-center justify-center space-x-2 hover:bg-[#B87008] transition-all disabled:opacity-50"
         >
-          <span>{loading ? 'Logging in...' : 'Login'}</span>
+          <span>{loading ? 'Logging in...' : lockoutTime ? 'Locked' : 'Login'}</span>
           <ArrowRight className="w-5 h-5" />
         </button>
 

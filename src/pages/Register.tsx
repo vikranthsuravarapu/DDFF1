@@ -46,8 +46,8 @@ export default function Register() {
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
-        const { token, user } = event.data;
-        login(token, user);
+        const { token, refreshToken, user } = event.data;
+        login(token, refreshToken, user);
         navigate('/');
       }
     };
@@ -89,7 +89,7 @@ export default function Register() {
           setVerificationToken(data.verificationToken || '');
           setSuccess(true);
         } else {
-          login(data.token, data.user);
+          login(data.token, data.refreshToken, data.user);
           navigate('/');
         }
       } else {

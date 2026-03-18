@@ -18,7 +18,7 @@ interface AuditLog {
 }
 
 export default function AuditLogs() {
-  const { token } = useAuth();
+  const { token, apiFetch } = useAuth();
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -36,9 +36,7 @@ export default function AuditLogs() {
         page: page.toString(),
         ...(actionFilter && { action: actionFilter })
       });
-      const res = await fetch(`/api/admin/audit-logs?${query}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const res = await apiFetch(`/api/admin/audit-logs?${query}`);
       const data = await res.json();
       setLogs(data);
     } catch (err) {

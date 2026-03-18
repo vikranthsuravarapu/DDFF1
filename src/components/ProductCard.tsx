@@ -8,7 +8,7 @@ import { formatCurrency } from '../utils/format';
 
 const ProductCard: React.FC<{ product: any, onWishlistUpdate?: () => void }> = ({ product, onWishlistUpdate }) => {
   const { items, addItem, updateQuantity } = useCart();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, apiFetch } = useAuth();
   const { isInWishlist, toggleWishlist: toggleWishlistInContext } = useWishlist();
   const navigate = useNavigate();
 
@@ -69,16 +69,12 @@ const ProductCard: React.FC<{ product: any, onWishlistUpdate?: () => void }> = (
 
   useEffect(() => {
     if (isAuthenticated && isOutOfStock) {
-      fetch(`/api/products/${product.id}/stock-alert`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      })
+      apiFetch(`/api/products/${product.id}/stock-alert`)
         .then(res => res.json())
         .then(data => setHasAlert(data.hasAlert))
         .catch(err => console.error('Error checking stock alert:', err));
     }
-  }, [isAuthenticated, isOutOfStock, product.id]);
+  }, [isAuthenticated, isOutOfStock, product.id, apiFetch]);
 
   const toggleStockAlert = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -92,19 +88,13 @@ const ProductCard: React.FC<{ product: any, onWishlistUpdate?: () => void }> = (
     setAlertLoading(true);
     try {
       if (hasAlert) {
-        const res = await fetch(`/api/products/${product.id}/stock-alert`, { 
-          method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          }
+        const res = await apiFetch(`/api/products/${product.id}/stock-alert`, { 
+          method: 'DELETE'
         });
         if (res.ok) setHasAlert(false);
       } else {
-        const res = await fetch(`/api/products/${product.id}/stock-alert`, { 
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          }
+        const res = await apiFetch(`/api/products/${product.id}/stock-alert`, { 
+          method: 'POST'
         });
         if (res.ok) setHasAlert(true);
       }

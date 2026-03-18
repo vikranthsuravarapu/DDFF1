@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function LocationSelectionModal() {
-  const { userLocation, setUserLocation, isLocationModalOpen, setIsLocationModalOpen } = useAuth();
+  const { userLocation, setUserLocation, isLocationModalOpen, setIsLocationModalOpen, apiFetch } = useAuth();
   const [selected, setSelected] = useState('');
   const [customLocation, setCustomLocation] = useState('');
   const [isCustom, setIsCustom] = useState(false);
@@ -14,7 +14,7 @@ export default function LocationSelectionModal() {
   useEffect(() => {
     const fetchVillages = async () => {
       try {
-        const res = await fetch('/api/delivery-zones');
+        const res = await apiFetch('/api/delivery-zones');
         if (res.ok) {
           const data = await res.json();
           setVillages(data.map((z: any) => z.name));

@@ -13,7 +13,7 @@ import { motion, AnimatePresence } from 'motion/react';
 export default function Products() {
   const [searchParams] = useSearchParams();
   const { itemCount } = useCart();
-  const { isDeliveryAvailable, isCheckingDelivery, user } = useAuth();
+  const { isDeliveryAvailable, isCheckingDelivery, user, apiFetch } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -48,9 +48,9 @@ export default function Products() {
       if (minRating > 0) url += `&min_rating=${minRating}`;
       
       const [productsRes, categoriesRes, farmersRes] = await Promise.all([
-        fetch(url),
-        fetch('/api/categories'),
-        fetch('/api/farmers')
+        apiFetch(url),
+        apiFetch('/api/categories'),
+        apiFetch('/api/farmers')
       ]);
 
       if (!productsRes.ok || !categoriesRes.ok || !farmersRes.ok) {
@@ -81,7 +81,7 @@ export default function Products() {
   useEffect(() => {
     const fetchPromos = async () => {
       try {
-        const res = await fetch('/api/promo-codes/active');
+        const res = await apiFetch('/api/promo-codes/active');
         if (res.ok) {
           const data = await res.json();
           setActivePromos(Array.isArray(data) ? data : []);

@@ -18,7 +18,7 @@ interface Farmer {
 
 export default function AdminFarmers() {
   console.log('[AdminFarmers] Rendering component');
-  const { token } = useAuth();
+  const { token, apiFetch } = useAuth();
   const [farmers, setFarmers] = useState<Farmer[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -46,9 +46,7 @@ export default function AdminFarmers() {
   const fetchFarmers = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/admin/farmers', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const res = await apiFetch('/api/admin/farmers');
       const data = await res.json();
       setFarmers(data);
     } catch (e) {
@@ -97,11 +95,10 @@ export default function AdminFarmers() {
     const method = editingFarmer ? 'PUT' : 'POST';
 
     try {
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method,
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify(formData)
       });
@@ -125,16 +122,14 @@ export default function AdminFarmers() {
     setIsDeleting(true);
     setError(null);
     try {
-      let res = await fetch(`/api/admin/farmers/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
+      let res = await apiFetch(`/api/admin/farmers/${id}`, {
+        method: 'DELETE'
       });
 
       // Fallback to POST if DELETE is not allowed
       if (res.status === 405 || res.status === 404) {
-        res = await fetch(`/api/admin/farmers/${id}/delete`, {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}` }
+        res = await apiFetch(`/api/admin/farmers/${id}/delete`, {
+          method: 'POST'
         });
       }
 

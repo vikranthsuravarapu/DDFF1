@@ -14,19 +14,17 @@ const WishlistContext = createContext<WishlistContextType | undefined>(undefined
 export const WishlistProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [wishlistItems, setWishlistItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
-  const { isAuthenticated, token } = useAuth();
+  const { isAuthenticated, apiFetch } = useAuth();
 
   const refreshWishlist = async () => {
-    if (!isAuthenticated || !token) {
+    if (!isAuthenticated) {
       setWishlistItems([]);
       return;
     }
 
     setLoading(true);
     try {
-      const res = await fetch('/api/wishlist', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const res = await apiFetch('/api/wishlist');
       if (res.ok) {
         const data = await res.json();
         setWishlistItems(Array.isArray(data) ? data : []);
@@ -40,22 +38,21 @@ export const WishlistProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   useEffect(() => {
     refreshWishlist();
-  }, [isAuthenticated, token]);
+  }, [isAuthenticated]);
 
   const isInWishlist = (productId: number) => {
     return wishlistItems.some(item => item.id === productId);
   };
 
   const toggleWishlist = async (product: any) => {
-    if (!isAuthenticated || !token) return;
+    if (!isAuthenticated) return;
 
     const isCurrentlyIn = isInWishlist(product.id);
     const method = isCurrentlyIn ? 'DELETE' : 'POST';
 
     try {
-      const res = await fetch(`/api/wishlist/${product.id}`, {
-        method,
-        headers: { 'Authorization': `Bearer ${token}` }
+      const res = await apiFetch(`/api/wishlist/${product.id}`, {
+        method
       });
 
       if (res.ok) {

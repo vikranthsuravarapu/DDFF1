@@ -13,12 +13,12 @@ interface MiniCartProps {
 
 export default function MiniCart({ isMobile, onClose }: MiniCartProps) {
   const { items, total, updateQuantity, removeItem, itemCount } = useCart();
-  const { userLocation } = useAuth();
+  const { userLocation, apiFetch } = useAuth();
   const [currentZone, setCurrentZone] = useState<any>(null);
 
   useEffect(() => {
     if (userLocation) {
-      fetch('/api/delivery-zones')
+      apiFetch('/api/delivery-zones')
         .then(res => res.json())
         .then(zones => {
           const zone = zones.find((z: any) => 

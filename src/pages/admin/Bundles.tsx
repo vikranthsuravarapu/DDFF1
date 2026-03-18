@@ -30,7 +30,7 @@ interface Bundle {
 }
 
 export default function AdminBundles() {
-  const { token } = useAuth();
+  const { token, apiFetch } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
   const [bundles, setBundles] = useState<Bundle[]>([]);
   const [loading, setLoading] = useState(true);
@@ -51,8 +51,8 @@ export default function AdminBundles() {
     setLoading(true);
     try {
       const [prodRes, bundleRes] = await Promise.all([
-        fetch('/api/products'),
-        fetch('/api/bundles')
+        apiFetch('/api/products'),
+        apiFetch('/api/bundles')
       ]);
       const prodData = await prodRes.json();
       const bundleData = await bundleRes.json();
@@ -95,11 +95,10 @@ export default function AdminBundles() {
 
     setSubmitting(true);
     try {
-      const res = await fetch('/api/admin/bundles', {
+      const res = await apiFetch('/api/admin/bundles', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           name,
@@ -127,11 +126,10 @@ export default function AdminBundles() {
 
   const toggleActive = async (id: number, currentStatus: boolean) => {
     try {
-      await fetch(`/api/admin/bundles/${id}`, {
+      await apiFetch(`/api/admin/bundles/${id}`, {
         method: 'PATCH',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({ is_active: !currentStatus })
       });
@@ -144,9 +142,8 @@ export default function AdminBundles() {
   const deleteBundle = async (id: number) => {
     if (!confirm('Are you sure you want to delete this bundle?')) return;
     try {
-      await fetch(`/api/admin/bundles/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
+      await apiFetch(`/api/admin/bundles/${id}`, {
+        method: 'DELETE'
       });
       fetchData();
     } catch (e) {

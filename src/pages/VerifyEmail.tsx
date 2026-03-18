@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams, useNavigate, Link } from 'react-router-dom';
 import { CheckCircle, XCircle, Loader2, ArrowRight, Mail } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function VerifyEmail() {
   const [searchParams] = useSearchParams();
   const token = searchParams.get('token');
   const navigate = useNavigate();
+  const { apiFetch } = useAuth();
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [message, setMessage] = useState('');
 
@@ -18,7 +20,7 @@ export default function VerifyEmail() {
 
     const verifyEmail = async () => {
       try {
-        const res = await fetch(`/api/auth/verify-email?token=${token}`);
+        const res = await apiFetch(`/api/auth/verify-email?token=${token}`);
         const data = await res.json();
         if (res.ok) {
           setStatus('success');
@@ -34,7 +36,7 @@ export default function VerifyEmail() {
     };
 
     verifyEmail();
-  }, [token]);
+  }, [token, apiFetch]);
 
   return (
     <div className="min-h-[60vh] flex items-center justify-center p-4">

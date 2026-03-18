@@ -12,7 +12,7 @@ export default function ProductDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { items, addItem, updateQuantity, setNotification } = useCart();
-  const { isAuthenticated, token, user } = useAuth();
+  const { isAuthenticated, token, user, apiFetch } = useAuth();
   const { t } = useLanguage();
   const [product, setProduct] = useState<any>(null);
   const [reviews, setReviews] = useState<any[]>([]);
@@ -86,11 +86,7 @@ export default function ProductDetail() {
 
   useEffect(() => {
     if (isAuthenticated && isOutOfStock && id) {
-      fetch(`/api/products/${id}/stock-alert`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      })
+      apiFetch(`/api/products/${id}/stock-alert`)
         .then(res => res.json())
         .then(data => setHasAlert(data.hasAlert))
         .catch(err => console.error('Error checking stock alert:', err));
@@ -106,22 +102,16 @@ export default function ProductDetail() {
     setAlertLoading(true);
     try {
       if (hasAlert) {
-        const res = await fetch(`/api/products/${id}/stock-alert`, { 
-          method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
+        const res = await apiFetch(`/api/products/${id}/stock-alert`, { 
+          method: 'DELETE'
         });
         if (res.ok) {
           setHasAlert(false);
           setNotification('Alert cancelled.');
         }
       } else {
-        const res = await fetch(`/api/products/${id}/stock-alert`, { 
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
+        const res = await apiFetch(`/api/products/${id}/stock-alert`, { 
+          method: 'POST'
         });
         if (res.ok) {
           setHasAlert(true);
@@ -144,8 +134,8 @@ export default function ProductDetail() {
     setLoading(true);
     try {
       const [prodRes, revRes] = await Promise.all([
-        fetch(`/api/products/${id}`),
-        fetch(`/api/products/${id}/reviews`)
+        apiFetch(`/api/products/${id}`),
+        apiFetch(`/api/products/${id}/reviews`)
       ]);
       const [prodData, revData] = await Promise.all([prodRes.json(), revRes.json()]);
       setProduct(prodData);
@@ -165,11 +155,10 @@ export default function ProductDetail() {
     }
     setIsSubmittingReview(true);
     try {
-      const res = await fetch(`/api/products/${id}/reviews`, {
+      const res = await apiFetch(`/api/products/${id}/reviews`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({ rating: newRating, comment: newComment })
       });

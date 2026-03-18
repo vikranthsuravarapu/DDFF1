@@ -7,7 +7,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { formatCurrency } from '../utils/format';
 
 export default function Profile() {
-  const { user, token, refreshToken, login, userLocation, setIsLocationModalOpen, refreshUser } = useAuth();
+  const { user, token, refreshToken, login, userLocation, setIsLocationModalOpen, refreshUser, apiFetch } = useAuth();
   const { addItem, setNotification } = useCart();
   const { t } = useLanguage();
   const navigate = useNavigate();
@@ -59,9 +59,7 @@ export default function Profile() {
     let url = '/api/orders';
     if (statusFilter) url += `?status=${statusFilter}`;
     
-    const res = await fetch(url, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
+    const res = await apiFetch(url);
     const data = await res.json();
     setOrders(Array.isArray(data) ? data : []);
     setLoading(false);
@@ -69,9 +67,7 @@ export default function Profile() {
 
   const fetchWishlist = async () => {
     setWishlistLoading(true);
-    const res = await fetch('/api/wishlist', {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
+    const res = await apiFetch('/api/wishlist');
     const data = await res.json();
     setWishlist(Array.isArray(data) ? data : []);
     setWishlistLoading(false);
@@ -79,9 +75,7 @@ export default function Profile() {
 
   const fetchAddresses = async () => {
     setAddressesLoading(true);
-    const res = await fetch('/api/user/saved-addresses', {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
+    const res = await apiFetch('/api/user/saved-addresses');
     const data = await res.json();
     setAddresses(Array.isArray(data) ? data : []);
     setAddressesLoading(false);
@@ -89,9 +83,7 @@ export default function Profile() {
 
   const fetchWalletTransactions = async () => {
     setWalletLoading(true);
-    const res = await fetch('/api/wallet/transactions', {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
+    const res = await apiFetch('/api/wallet/transactions');
     const data = await res.json();
     setWalletTransactions(Array.isArray(data) ? data : []);
     setWalletLoading(false);
@@ -100,9 +92,7 @@ export default function Profile() {
   const fetchReferralData = async () => {
     setReferralLoading(true);
     try {
-      const res = await fetch('/api/referrals/my-code', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const res = await apiFetch('/api/referrals/my-code');
       const data = await res.json();
       setReferralData(data);
     } catch (err) {
@@ -121,7 +111,7 @@ export default function Profile() {
       fetchWalletTransactions();
       fetchReferralData();
       
-      fetch('/api/delivery-zones')
+      apiFetch('/api/delivery-zones')
         .then(res => res.json())
         .then(data => setDeliveryZones(data))
         .catch(err => console.error('Failed to fetch delivery zones:', err));
@@ -136,11 +126,10 @@ export default function Profile() {
     e.preventDefault();
     setIsUpdatingProfile(true);
     try {
-      const res = await fetch('/api/user/profile', {
+      const res = await apiFetch('/api/user/profile', {
         method: 'PATCH',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify(editFormData)
       });
@@ -170,11 +159,10 @@ export default function Profile() {
     const url = editingAddress ? `/api/user/saved-addresses/${editingAddress.id}` : '/api/user/saved-addresses';
     
     try {
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method,
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify(addressFormData)
       });
@@ -194,9 +182,8 @@ export default function Profile() {
   const handleDeleteAddress = async (id: number) => {
     if (!confirm(t('delete_address_confirm'))) return;
     try {
-      const res = await fetch(`/api/user/saved-addresses/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
+      const res = await apiFetch(`/api/user/saved-addresses/${id}`, {
+        method: 'DELETE'
       });
       if (res.ok) fetchAddresses();
     } catch (err) {
@@ -206,9 +193,8 @@ export default function Profile() {
 
   const handleSetDefaultAddress = async (id: number) => {
     try {
-      const res = await fetch(`/api/user/saved-addresses/${id}/default`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
+      const res = await apiFetch(`/api/user/saved-addresses/${id}/default`, {
+        method: 'POST'
       });
       if (res.ok) fetchAddresses();
     } catch (err) {
@@ -224,9 +210,7 @@ export default function Profile() {
     
     setIsRepeating(orderId);
     try {
-      const orderRes = await fetch(`/api/orders/${orderId}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const orderRes = await apiFetch(`/api/orders/${orderId}`);
       const orderData = await orderRes.json();
       
       if (!orderData.items || orderData.items.length === 0) {
@@ -234,7 +218,7 @@ export default function Profile() {
         return;
       }
 
-      const productsRes = await fetch('/api/products');
+      const productsRes = await apiFetch('/api/products');
       const allProducts = await productsRes.json();
 
       let addedCount = 0;
@@ -664,9 +648,8 @@ export default function Profile() {
                       <Link to={`/products/${product.id}`} className="text-xs font-bold text-blue-600 hover:underline">{t('view_details')}</Link>
                       <button 
                         onClick={async () => {
-                          await fetch(`/api/wishlist/${product.id}`, {
-                            method: 'DELETE',
-                            headers: { 'Authorization': `Bearer ${token}` }
+                          await apiFetch(`/api/wishlist/${product.id}`, {
+                            method: 'DELETE'
                           });
                           fetchWishlist();
                         }}

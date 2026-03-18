@@ -9,7 +9,7 @@ export default function DeliveryLogin() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [errors, setErrors] = useState<{email?: string, password?: string}>({});
-  const { login } = useAuth();
+  const { login, apiFetch } = useAuth();
   const navigate = useNavigate();
 
   const validate = () => {
@@ -30,7 +30,7 @@ export default function DeliveryLogin() {
     setError('');
 
     try {
-      const res = await fetch('/api/auth/login', {
+      const res = await apiFetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })

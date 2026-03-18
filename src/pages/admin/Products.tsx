@@ -8,7 +8,7 @@ import ReactMarkdown from 'react-markdown';
 import EmojiPicker, { Theme } from 'emoji-picker-react';
 
 export default function AdminProducts() {
-  const { token } = useAuth();
+  const { token, apiFetch } = useAuth();
   const { setNotification } = useCart();
   const [searchParams] = useSearchParams();
   const [products, setProducts] = useState([]);
@@ -94,13 +94,9 @@ export default function AdminProducts() {
       if (products.length === 0) setLoading(true);
       
       const [prodRes, catRes, farmRes] = await Promise.all([
-        fetch(`/api/admin/products?t=${Date.now()}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        }),
-        fetch(`/api/categories?t=${Date.now()}`),
-        fetch(`/api/admin/farmers?t=${Date.now()}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        })
+        apiFetch(`/api/admin/products?t=${Date.now()}`),
+        apiFetch(`/api/categories?t=${Date.now()}`),
+        apiFetch(`/api/admin/farmers?t=${Date.now()}`)
       ]);
       
       if (!prodRes.ok || !catRes.ok || !farmRes.ok) {
@@ -147,15 +143,10 @@ export default function AdminProducts() {
     const method = editingProduct ? 'PUT' : 'POST';
 
     try {
-      if (!token) {
-        setNotification('You must be logged in as an admin.');
-        return;
-      }
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method,
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           ...formData,
@@ -221,22 +212,15 @@ export default function AdminProducts() {
     setConfirmDeleteId(null);
     setDeletingId(id);
     try {
-      if (!token) {
-        setNotification('Error: No authentication token found. Please re-login.');
-        return;
-      }
-
       // Try DELETE first
-      let res = await fetch(`/api/admin/products/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
+      let res = await apiFetch(`/api/admin/products/${id}`, {
+        method: 'DELETE'
       });
 
       // If DELETE is not allowed or fails, try POST fallback
       if (res.status === 405 || res.status === 404) {
-        res = await fetch(`/api/admin/products/${id}/delete`, {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}` }
+        res = await apiFetch(`/api/admin/products/${id}/delete`, {
+          method: 'POST'
         });
       }
 
@@ -274,11 +258,10 @@ export default function AdminProducts() {
 
     setIsAddingCategory(true);
     try {
-      const res = await fetch('/api/admin/categories', {
+      const res = await apiFetch('/api/admin/categories', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({ name: newCategoryName, emoji: newCategoryEmoji })
       });
@@ -303,11 +286,10 @@ export default function AdminProducts() {
     if (!editingCategory) return;
     setIsUpdatingCategory(true);
     try {
-      const res = await fetch(`/api/admin/categories/${editingCategory.id}`, {
+      const res = await apiFetch(`/api/admin/categories/${editingCategory.id}`, {
         method: 'PATCH',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({ name: newCategoryName, emoji: newCategoryEmoji })
       });
@@ -339,25 +321,18 @@ export default function AdminProducts() {
     setConfirmDeleteCatId(null);
     setDeletingCatId(id);
     try {
-      if (!token) {
-        setNotification('Error: No authentication token found.');
-        return;
-      }
-
       console.log(`[Admin] Attempting to delete category ${id}`);
       
       // Try DELETE first
-      let res = await fetch(`/api/admin/categories/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
+      let res = await apiFetch(`/api/admin/categories/${id}`, {
+        method: 'DELETE'
       });
 
       // Fallback to POST if DELETE is blocked
       if (res.status === 405 || res.status === 404) {
         console.log(`[Admin] DELETE not supported, trying POST fallback for category ${id}`);
-        res = await fetch(`/api/admin/categories/${id}/delete`, {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}` }
+        res = await apiFetch(`/api/admin/categories/${id}/delete`, {
+          method: 'POST'
         });
       }
 
@@ -392,11 +367,10 @@ export default function AdminProducts() {
     
     setIsBulkUpdating(true);
     try {
-      const res = await fetch('/api/admin/products/bulk-stock', {
+      const res = await apiFetch('/api/admin/products/bulk-stock', {
         method: 'PATCH',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({ ids: selectedIds, stock })
       });

@@ -90,6 +90,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setToken(savedToken);
       setRefreshToken(savedRefreshToken);
       setUser(JSON.parse(savedUser));
+
+      // Check if token is expired or near expiration
+      try {
+        const payload = JSON.parse(atob(savedToken.split('.')[1]));
+        const exp = payload.exp * 1000;
+        if (Date.now() >= exp - 60000) { // Expired or expires in < 1 minute
+          // Trigger a refresh call immediately
+          apiFetch('/api/user/profile'); 
+        }
+      } catch (e) {
+        console.error('Failed to parse token:', e);
+      }
     }
     
     if (savedLocation) {
@@ -110,6 +122,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener('message', handleMessage);
   }, []);
 
+  // Proactive token refresh
+  useEffect(() => {
+    if (!token || !refreshToken) return;
+
+    const interval = setInterval(() => {
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        const exp = payload.exp * 1000;
+        // If token expires in less than 5 minutes, refresh it
+        if (Date.now() >= exp - 300000) {
+          apiFetch('/api/user/profile');
+        }
+      } catch (e) {
+        console.error('Proactive refresh check failed:', e);
+      }
+    }, 60000); // Check every minute
+
+    return () => clearInterval(interval);
+  }, [token, refreshToken]);
+
   const login = (newToken: string, newRefreshToken: string, newUser: User) => {
     setToken(newToken);
     setRefreshToken(newRefreshToken);
@@ -125,41 +157,56 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const apiFetch = async (url: string, options: RequestInit = {}): Promise<Response> => {
-    const headers = {
-      ...(options.headers || {}),
-      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-    };
+  const refreshPromise = React.useRef<Promise<string | null> | null>(null);
 
-    let response = await fetch(url, { ...options, headers });
+  const apiFetch = async (url: string, options: RequestInit = {}): Promise<Response> => {
+    const getHeaders = (t: string | null) => ({
+      ...(options.headers || {}),
+      ...(t ? { 'Authorization': `Bearer ${t}` } : {})
+    });
+
+    let response = await fetch(url, { ...options, headers: getHeaders(token) });
 
     if (response.status === 401 && refreshToken) {
       try {
-        const refreshRes = await fetch('/api/auth/refresh', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refreshToken })
-        });
+        // If there's already a refresh in progress, wait for it
+        if (!refreshPromise.current) {
+          refreshPromise.current = (async () => {
+            try {
+              const refreshRes = await fetch('/api/auth/refresh', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ refreshToken })
+              });
 
-        if (refreshRes.ok) {
-          const { token: newToken } = await refreshRes.json();
-          setToken(newToken);
-          localStorage.setItem('token', newToken);
-          
-          // Retry original request
-          const retryHeaders = {
-            ...(options.headers || {}),
-            'Authorization': `Bearer ${newToken}`
-          };
-          response = await fetch(url, { ...options, headers: retryHeaders });
-        } else {
-          logout();
-          window.location.href = '/login';
+              if (refreshRes.ok) {
+                const { token: newToken } = await refreshRes.json();
+                setToken(newToken);
+                localStorage.setItem('token', newToken);
+                return newToken;
+              } else {
+                logout();
+                window.location.href = '/login';
+                return null;
+              }
+            } catch (err) {
+              console.error('Token refresh failed:', err);
+              logout();
+              window.location.href = '/login';
+              return null;
+            } finally {
+              refreshPromise.current = null;
+            }
+          })();
+        }
+
+        const newToken = await refreshPromise.current;
+        if (newToken) {
+          // Retry original request with the new token
+          response = await fetch(url, { ...options, headers: getHeaders(newToken) });
         }
       } catch (err) {
-        console.error('Token refresh failed:', err);
-        logout();
-        window.location.href = '/login';
+        console.error('Error during token refresh/retry:', err);
       }
     }
 

@@ -11,7 +11,7 @@ import ReactMarkdown from 'react-markdown';
 export default function Cart() {
   const { t } = useLanguage();
   const { items, updateQuantity, removeItem, total, itemCount } = useCart();
-  const { user, userLocation } = useAuth();
+  const { user, userLocation, apiFetch } = useAuth();
   const navigate = useNavigate();
   const [mealPlan, setMealPlan] = useState<string | null>(null);
   const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
@@ -19,7 +19,7 @@ export default function Cart() {
 
   useEffect(() => {
     if (userLocation) {
-      fetch('/api/delivery-zones')
+      apiFetch('/api/delivery-zones')
         .then(res => res.json())
         .then(zones => {
           const zone = zones.find((z: any) => 

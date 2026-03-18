@@ -26,7 +26,7 @@ const loadRazorpayScript = () => {
 export default function Checkout() {
   const { t } = useLanguage();
   const { items, total, clearCart } = useCart();
-  const { user, token, logout, refreshUser } = useAuth();
+  const { user, token, logout, refreshUser, apiFetch } = useAuth();
   const navigate = useNavigate();
 
   const [useWallet, setUseWallet] = useState(false);
@@ -71,7 +71,7 @@ export default function Checkout() {
   });
 
   useEffect(() => {
-    fetch('/api/delivery-zones')
+    apiFetch('/api/delivery-zones')
       .then(res => res.json())
       .then(data => {
         setDeliveryZones(data);
@@ -155,16 +155,12 @@ export default function Checkout() {
 
     // Fetch previous addresses
     if (token) {
-      fetch('/api/user/previous-addresses', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
+      apiFetch('/api/user/previous-addresses')
       .then(res => res.json())
       .then(data => setPreviousAddresses(Array.isArray(data) ? data : []))
       .catch(err => console.error('Failed to fetch previous addresses:', err));
 
-      fetch('/api/user/saved-addresses', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
+      apiFetch('/api/user/saved-addresses')
       .then(res => res.json())
       .then(data => {
         const addresses = Array.isArray(data) ? data : [];
@@ -319,11 +315,10 @@ export default function Checkout() {
     setPromoLoading(true);
     setPromoError(null);
     try {
-      const res = await fetch('/api/promo/validate', {
+      const res = await apiFetch('/api/promo/validate', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({ 
           code: promoCode, 
@@ -359,11 +354,10 @@ export default function Checkout() {
     try {
       // Save address if requested
       if (saveThisAddress) {
-        await fetch('/api/user/saved-addresses', {
+        await apiFetch('/api/user/saved-addresses', {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
+            'Content-Type': 'application/json'
           },
           body: JSON.stringify({
             label: addressLabel,
@@ -389,11 +383,10 @@ export default function Checkout() {
       const walletAmountUsed = useWallet ? Math.min(walletBalance, subtotalWithDelivery) : 0;
       const finalAmount = Math.max(0, subtotalWithDelivery - walletAmountUsed);
 
-      const res = await fetch('/api/orders', {
+      const res = await apiFetch('/api/orders', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           items: items.map(i => ({ product_id: i.id, quantity: i.quantity, price: i.price })),
@@ -437,11 +430,10 @@ export default function Checkout() {
             order_id: data.razorpayOrderId,
             handler: async (response: any) => {
               try {
-                const verifyRes = await fetch('/api/payments/verify', {
+                const verifyRes = await apiFetch('/api/payments/verify', {
                   method: 'POST',
                   headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
+                    'Content-Type': 'application/json'
                   },
                   body: JSON.stringify({
                     razorpay_order_id: response.razorpay_order_id,

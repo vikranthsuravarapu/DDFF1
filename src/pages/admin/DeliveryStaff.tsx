@@ -5,7 +5,7 @@ import { analyzeAdminData } from '../../services/geminiService';
 import ReactMarkdown from 'react-markdown';
 
 export default function AdminDeliveryStaff() {
-  const { token } = useAuth();
+  const { token, apiFetch } = useAuth();
   const [staff, setStaff] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
@@ -18,20 +18,17 @@ export default function AdminDeliveryStaff() {
     fetchStaff();
   }, [token]);
 
-  const fetchStaff = () => {
+  const fetchStaff = async () => {
     setLoading(true);
-    fetch('/api/admin/delivery-boys', {
-      headers: { 'Authorization': `Bearer ${token}` }
-    })
-    .then(res => res.json())
-    .then(data => {
+    try {
+      const res = await apiFetch('/api/admin/delivery-boys');
+      const data = await res.json();
       setStaff(data);
-      setLoading(false);
-    })
-    .catch(err => {
+    } catch (err) {
       console.error(err);
+    } finally {
       setLoading(false);
-    });
+    }
   };
 
   const handleAIAnalysis = async () => {
@@ -46,9 +43,8 @@ export default function AdminDeliveryStaff() {
     if (!window.confirm('Are you sure you want to remove this staff member?')) return;
     
     try {
-      const res = await fetch(`/api/admin/delivery-boys/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
+      const res = await apiFetch(`/api/admin/delivery-boys/${id}`, {
+        method: 'DELETE'
       });
       
       if (!res.ok) {
@@ -66,11 +62,10 @@ export default function AdminDeliveryStaff() {
     e.preventDefault();
     setError('');
     try {
-      const res = await fetch('/api/admin/delivery-boys', {
+      const res = await apiFetch('/api/admin/delivery-boys', {
         method: 'POST',
         headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}` 
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify(newStaff)
       });

@@ -1,14 +1,6 @@
 import 'dotenv/config';
-import * as Sentry from '@sentry/node';
 import express from 'express';
 import helmet from 'helmet';
-
-Sentry.init({
-  dsn: process.env.SENTRY_DSN,
-  environment: process.env.NODE_ENV || 'development',
-  tracesSampleRate: 0.1,
-  enabled: !!process.env.SENTRY_DSN
-});
 import cors from 'cors';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
@@ -95,6 +87,19 @@ app.use(helmet({
   noSniff: true,
   xssFilter: true
 }));
+
+function logError(error: any, context: string, req?: any) {
+  console.error(JSON.stringify({
+    severity: 'ERROR',
+    message: error?.message || String(error),
+    context,
+    stack: error?.stack,
+    url: req?.originalUrl,
+    method: req?.method,
+    userId: req?.user?.id,
+    timestamp: new Date().toISOString()
+  }));
+}
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 
@@ -194,7 +199,7 @@ app.post('/api/webhooks/razorpay',
                 );
               }
             } catch (notifError) {
-              Sentry.captureException(notifError);
+              logError(notifError, 'webhook-notification-failed', req);
               console.error('[Webhook] Notification failed:', notifError);
             }
           }
@@ -224,7 +229,7 @@ app.post('/api/webhooks/razorpay',
 
       res.json({ received: true });
     } catch (error) {
-      Sentry.captureException(error);
+      logError(error, 'webhook-processing-failed', req);
       console.error('[Webhook] Processing error:', error);
       res.status(500).json({ error: 'Webhook processing failed' });
     }
@@ -296,11 +301,12 @@ const authenticate = (req: any, res: any, next: any) => {
     req.user = decoded;
     next();
   } catch (e: any) {
-    Sentry.captureException(e);
-    console.error('JWT Verification Error:', e.message);
     if (e.name === 'TokenExpiredError') {
+      console.warn(`[Auth] Token expired for ${req.originalUrl}`);
       return res.status(401).json({ error: 'Token expired. Please login again.' });
     }
+    logError(e, 'jwt-verification-failed', req);
+    console.error('JWT Verification Error:', e.message);
     res.status(401).json({ error: 'Invalid token' });
   }
 };
@@ -353,7 +359,7 @@ async function auditLog(
       ]
     );
   } catch (e) {
-    Sentry.captureException(e);
+    logError(e, 'audit-log-failed', req);
     console.error('[Audit] Failed to write audit log:', e);
   }
 }
@@ -441,7 +447,7 @@ const sendVerificationEmail = async (userEmail: string, token: string) => {
     });
     console.log(`[Email] Verification email sent to ${userEmail}`);
   } catch (error) {
-    Sentry.captureException(error);
+    logError(error, 'send-verification-email-failed');
     console.error(`[Email] Failed to send verification email to ${userEmail}:`, error);
   }
 };
@@ -478,7 +484,7 @@ const sendOrderStatusEmail = async (userEmail: string, orderId: number, status: 
       html,
     });
   } catch (error) {
-    Sentry.captureException(error);
+    logError(error, 'send-order-status-email-failed');
     console.error('Email sending failed:', error);
   }
 };
@@ -504,7 +510,7 @@ const notifyOrderStatusUpdate = async (orderId: number, status: string) => {
       }
     }
   } catch (error) {
-    Sentry.captureException(error);
+    logError(error, 'notify-order-status-update-failed');
     console.error(`Failed to send notifications for order #${orderId}:`, error);
   }
 };
@@ -743,7 +749,7 @@ app.get('/auth/google/callback', async (req, res) => {
       </html>
     `);
   } catch (error) {
-    Sentry.captureException(error);
+    logError(error, 'google-oauth-failed', req);
     console.error('Google OAuth Error:', error);
     res.status(500).send('Authentication failed');
   }
@@ -765,7 +771,7 @@ const fixData = async () => {
     // Fix Machavaram minimum order if it exists and is too high
     await db.query("UPDATE delivery_zones SET min_order_amount = 200 WHERE name = 'Machavaram' AND min_order_amount >= 500");
   } catch (e) {
-    Sentry.captureException(e);
+    logError(e, 'fix-data-failed');
     console.error('Failed to update broken data:', e);
   }
 };
@@ -813,7 +819,7 @@ const checkAndRewardReferral = async (userId: number, client?: any) => {
     
     console.log(`[Referral] Credited ₹${rewardAmount} to users ${referredBy} and ${userId}`);
   } catch (error) {
-    Sentry.captureException(error);
+    logError(error, 'referral-reward-failed');
     console.error('[Referral] Reward processing failed:', error);
   }
 };
@@ -855,7 +861,7 @@ app.post('/api/auth/register', [
       verificationToken: process.env.SMTP_USER ? undefined : verificationToken
     });
   } catch (e: any) {
-    Sentry.captureException(e);
+    logError(e, 'register-user-failed', req);
     console.error('Registration error:', e);
     res.status(400).json({ error: 'Email already exists' });
   }
@@ -876,7 +882,7 @@ app.get('/api/auth/verify-email', async (req, res) => {
 
     res.json({ message: 'Email verified successfully! You can now login.' });
   } catch (error) {
-    Sentry.captureException(error);
+    logError(error, 'verify-email-failed', req);
     console.error('Email verification error:', error);
     res.status(500).json({ error: 'Failed to verify email' });
   }
@@ -903,7 +909,7 @@ app.post('/api/auth/resend-verification', async (req, res) => {
     await sendVerificationEmail(email, verificationToken);
     res.json({ message: 'Verification email resent successfully!' });
   } catch (error) {
-    Sentry.captureException(error);
+    logError(error, 'resend-verification-failed', req);
     console.error('Resend verification error:', error);
     res.status(500).json({ error: 'Failed to resend verification email' });
   }
@@ -975,7 +981,7 @@ app.post('/api/auth/refresh', async (req, res) => {
     );
     res.json({ token: newAccessToken });
   } catch (e) {
-    Sentry.captureException(e);
+    logError(e, 'refresh-token-failed', req);
     res.status(401).json({ error: 'Token refresh failed' });
   }
 });
@@ -1000,7 +1006,7 @@ app.patch('/api/user/profile', authenticate, async (req: any, res) => {
     const userRes = await db.query('SELECT id, name, email, phone, role, wallet_balance FROM users WHERE id = $1', [req.user.id]);
     res.json({ success: true, user: userRes.rows[0] });
   } catch (e) {
-    Sentry.captureException(e);
+    logError(e, 'update-profile-failed', req);
     res.status(500).json({ error: 'Failed to update profile' });
   }
 });
@@ -1010,7 +1016,7 @@ app.get('/api/admin/farmers', authenticate, isAdmin, async (req, res) => {
     const farmersRes = await db.query('SELECT * FROM farmers ORDER BY name ASC');
     res.json(farmersRes.rows);
   } catch (error) {
-    Sentry.captureException(error);
+    logError(error, 'fetch-admin-farmers-failed', req);
     console.error('Error fetching admin farmers:', error);
     res.status(500).json({ error: 'Failed to fetch farmers' });
   }
@@ -1027,7 +1033,7 @@ app.post('/api/admin/farmers', authenticate, isAdmin, async (req, res) => {
     );
     res.json({ success: true, id: result.rows[0].id });
   } catch (e) {
-    Sentry.captureException(e);
+    logError(e, 'add-farmer-failed', req);
     res.status(500).json({ error: 'Failed to add farmer' });
   }
 });
@@ -1043,7 +1049,7 @@ app.put('/api/admin/farmers/:id', authenticate, isAdmin, async (req, res) => {
     );
     res.json({ success: true });
   } catch (e) {
-    Sentry.captureException(e);
+    logError(e, 'update-farmer-failed', req);
     res.status(500).json({ error: 'Failed to update farmer' });
   }
 });
@@ -1101,7 +1107,7 @@ app.get('/api/categories', async (req, res) => {
     const categoriesRes = await db.query('SELECT * FROM categories ORDER BY id DESC');
     res.json(categoriesRes.rows);
   } catch (error) {
-    Sentry.captureException(error);
+    logError(error, 'fetch-categories-failed', req);
     console.error('Error fetching categories:', error);
     res.status(500).json({ error: 'Failed to fetch categories' });
   }
@@ -1112,7 +1118,7 @@ app.get('/api/farmers', async (req, res) => {
     const farmersRes = await db.query('SELECT id, name, location FROM farmers ORDER BY name ASC');
     res.json(farmersRes.rows);
   } catch (error) {
-    Sentry.captureException(error);
+    logError(error, 'fetch-farmers-failed', req);
     console.error('Error fetching farmers:', error);
     res.status(500).json({ error: 'Failed to fetch farmers' });
   }
@@ -1156,7 +1162,7 @@ app.get('/api/products', async (req, res) => {
     const productsRes = await db.query(query, params);
     res.json(productsRes.rows);
   } catch (error) {
-    Sentry.captureException(error);
+    logError(error, 'fetch-products-failed', req);
     console.error('Error fetching products:', error);
     res.status(500).json({ error: 'Failed to fetch products' });
   }
@@ -1177,7 +1183,7 @@ app.get('/api/products/flash-sales', async (req, res) => {
     const productsRes = await db.query(query);
     res.json(productsRes.rows);
   } catch (error) {
-    Sentry.captureException(error);
+    logError(error, 'fetch-flash-sales-failed', req);
     console.error('Error fetching flash sales:', error);
     res.status(500).json({ error: 'Failed to fetch flash sales' });
   }
@@ -1200,7 +1206,7 @@ app.get('/api/bundles', async (req, res) => {
     );
     res.json(bundlesRes.rows);
   } catch (e) {
-    Sentry.captureException(e);
+    logError(e, 'fetch-bundles-failed', req);
     console.error('Error fetching bundles:', e);
     res.status(500).json({ error: 'Failed to fetch bundles' });
   }
@@ -1218,7 +1224,7 @@ app.get('/api/products/:id', async (req, res) => {
     if (!product) return res.status(404).json({ error: 'Product not found' });
     res.json(product);
   } catch (error) {
-    Sentry.captureException(error);
+    logError(error, 'fetch-product-detail-failed', req);
     console.error('Error fetching product detail:', error);
     res.status(500).json({ error: 'Failed to fetch product' });
   }
@@ -1240,7 +1246,7 @@ app.get('/api/farmers/:id', async (req, res) => {
       total_products: parseInt(totalProductsRes.rows[0].count)
     });
   } catch (error) {
-    Sentry.captureException(error);
+    logError(error, 'fetch-farmer-detail-failed', req);
     console.error('Error fetching farmer detail:', error);
     res.status(500).json({ error: 'Failed to fetch farmer' });
   }
@@ -1515,7 +1521,7 @@ app.post('/api/orders', authenticate, [
             }
           }
         } catch (err) {
-          Sentry.captureException(err);
+          logError(err, 'admin-low-stock-notification-failed', req);
           console.error('Failed to send admin low stock notification:', err);
         }
       }
@@ -1539,7 +1545,7 @@ app.post('/api/orders', authenticate, [
       const message = `Hi ${userName}, thank you for your order #${orderId} from DDFF! We are processing it now. 🌾`;
       await sendWhatsAppNotification(phone, message);
     } catch (notifyError) {
-      Sentry.captureException(notifyError);
+      logError(notifyError, 'initial-order-notification-failed', req);
       console.error('Failed to send initial order notification:', notifyError);
     }
 
@@ -1566,7 +1572,7 @@ app.post('/api/orders', authenticate, [
           key: process.env.RAZORPAY_KEY_ID
         });
       } catch (err: any) {
-        Sentry.captureException(err);
+        logError(err, 'razorpay-order-creation-failed', req);
         console.error('Razorpay Order Error:', err);
         // We already committed the order in DB, but payment failed to initiate.
         // In a real app, you might want to handle this better (e.g. mark order as failed or allow retry)
@@ -1577,7 +1583,7 @@ app.post('/api/orders', authenticate, [
     res.json({ success: true, orderId });
   } catch (e: any) {
     await client.query('ROLLBACK');
-    Sentry.captureException(e);
+    logError(e, 'place-order-failed', req);
     console.error('Order error:', e);
     res.status(400).json({ error: e.message || 'Failed to place order' });
   } finally {
@@ -1755,7 +1761,7 @@ app.get('/api/orders/:id/invoice', async (req: any, res) => {
     doc.end();
 
   } catch (error) {
-    Sentry.captureException(error);
+    logError(error, 'invoice-generation-failed', req);
     console.error('Invoice generation error:', error);
     res.status(500).json({ error: 'Failed to generate invoice' });
   }
@@ -1791,7 +1797,7 @@ app.get('/api/user/previous-addresses', authenticate, async (req: any, res) => {
     `, [req.user.id]);
     res.json(addressesRes.rows);
   } catch (error) {
-    Sentry.captureException(error);
+    logError(error, 'fetch-previous-addresses-failed', req);
     console.error('Error fetching previous addresses:', error);
     res.status(500).json({ error: 'Failed to fetch previous addresses' });
   }
@@ -1802,7 +1808,7 @@ app.get('/api/user/saved-addresses', authenticate, async (req: any, res) => {
     const addressesRes = await db.query('SELECT * FROM saved_addresses WHERE user_id = $1 ORDER BY is_default DESC, created_at DESC', [req.user.id]);
     res.json(addressesRes.rows);
   } catch (error) {
-    Sentry.captureException(error);
+    logError(error, 'fetch-saved-addresses-failed', req);
     console.error('Error fetching saved addresses:', error);
     res.status(500).json({ error: 'Failed to fetch saved addresses' });
   }
@@ -1832,7 +1838,7 @@ app.post('/api/user/saved-addresses', authenticate, [
     `, [req.user.id, label, house_no, street, landmark, address, city, district, state, pincode, phone, is_default || false]);
     res.json(result.rows[0]);
   } catch (error) {
-    Sentry.captureException(error);
+    logError(error, 'add-saved-address-failed', req);
     console.error('Error adding saved address:', error);
     res.status(500).json({ error: 'Failed to add saved address' });
   }
@@ -1860,7 +1866,7 @@ app.put('/api/user/saved-addresses/:id', authenticate, async (req: any, res) => 
     if (result.rowCount === 0) return res.status(404).json({ error: 'Address not found' });
     res.json(result.rows[0]);
   } catch (error) {
-    Sentry.captureException(error);
+    logError(error, 'update-saved-address-failed', req);
     console.error('Error updating saved address:', error);
     res.status(500).json({ error: 'Failed to update saved address' });
   }
@@ -1872,7 +1878,7 @@ app.delete('/api/user/saved-addresses/:id', authenticate, async (req: any, res) 
     if (result.rowCount === 0) return res.status(404).json({ error: 'Address not found' });
     res.json({ success: true });
   } catch (error) {
-    Sentry.captureException(error);
+    logError(error, 'delete-saved-address-failed', req);
     console.error('Error deleting saved address:', error);
     res.status(500).json({ error: 'Failed to delete saved address' });
   }
@@ -1885,7 +1891,7 @@ app.post('/api/user/saved-addresses/:id/default', authenticate, async (req: any,
     if (result.rowCount === 0) return res.status(404).json({ error: 'Address not found' });
     res.json(result.rows[0]);
   } catch (error) {
-    Sentry.captureException(error);
+    logError(error, 'set-default-address-failed', req);
     console.error('Error setting default address:', error);
     res.status(500).json({ error: 'Failed to set default address' });
   }
@@ -2031,7 +2037,7 @@ app.patch('/api/orders/:id/cancel', authenticate, async (req: any, res) => {
           final_refund_method = 'bank';
           whatsappMessage = `✅ Order #${orderId} cancelled. Your refund of ₹${order.final_amount} has been initiated to your original payment method. It will reflect in 5–7 business days.\n\nRefund ID: ${refund.id}\n\nKeep this for your records. 🙏`;
         } catch (razorpayError: any) {
-          Sentry.captureException(razorpayError);
+          logError(razorpayError, 'razorpay-refund-failed', req);
           console.error('Razorpay refund error:', razorpayError);
           await client.query('ROLLBACK');
           return res.status(500).json({ 
@@ -2049,7 +2055,7 @@ app.patch('/api/orders/:id/cancel', authenticate, async (req: any, res) => {
       try {
         await sendWhatsAppNotification(order.phone, whatsappMessage);
       } catch (wsError) {
-        Sentry.captureException(wsError);
+        logError(wsError, 'whatsapp-notification-failed', req);
         console.error('WhatsApp notification error:', wsError);
       }
     }
@@ -2063,7 +2069,7 @@ app.patch('/api/orders/:id/cancel', authenticate, async (req: any, res) => {
 
   } catch (error: any) {
     if (client) await client.query('ROLLBACK');
-    Sentry.captureException(error);
+    logError(error, 'order-cancellation-failed', req);
     console.error('Order cancellation error:', error);
     res.status(500).json({ error: error.message || 'Failed to cancel order' });
   } finally {
@@ -2094,7 +2100,7 @@ app.post('/api/admin/products', authenticate, isAdmin, async (req, res) => {
     
     res.json({ success: true, id: productId });
   } catch (e) {
-    Sentry.captureException(e);
+    logError(e, 'add-product-failed', req);
     console.error('Error adding product:', e);
     res.status(500).json({ error: 'Failed to add product' });
   }
@@ -2140,7 +2146,7 @@ app.delete('/api/admin/products/:id', authenticate, isAdmin, async (req, res) =>
     await auditLog(req, 'DELETE_PRODUCT', 'product', productId.toString(), oldProduct, { is_deleted: true });
     res.json({ success: true, method: 'soft' });
   } catch (e: any) {
-    Sentry.captureException(e);
+    logError(e, 'delete-product-failed', req);
     console.error(`[DeleteProduct] Error:`, e);
     res.status(500).json({ error: 'Failed to delete product: ' + e.message });
   }
@@ -2199,7 +2205,7 @@ app.post('/api/admin/bundles', authenticate, isAdmin, async (req: any, res) => {
     res.json(bundleRes.rows[0]);
   } catch (e) {
     await client.query('ROLLBACK');
-    Sentry.captureException(e);
+    logError(e, 'create-bundle-failed', req);
     console.error('Error creating bundle:', e);
     res.status(500).json({ error: 'Failed to create bundle' });
   } finally { client.release(); }
@@ -2289,7 +2295,7 @@ app.put('/api/admin/products/:id', authenticate, isAdmin, async (req, res) => {
     res.json({ success: true });
   } catch (e) {
     await client.query('ROLLBACK');
-    Sentry.captureException(e);
+    logError(e, 'update-product-failed', req);
     console.error('Error updating product:', e);
     res.status(500).json({ error: 'Failed to update product' });
   } finally {
@@ -2337,7 +2343,7 @@ app.patch('/api/admin/products/bulk-stock', authenticate, isAdmin, async (req, r
     res.json({ success: true, updated: ids.length });
   } catch (e) {
     await client.query('ROLLBACK');
-    Sentry.captureException(e);
+    logError(e, 'bulk-stock-update-failed', req);
     console.error('Bulk stock update error:', e);
     res.status(500).json({ error: 'Failed to bulk update stock' });
   } finally {
@@ -2432,7 +2438,7 @@ app.patch('/api/admin/users/:id/wallet', authenticate, isAdmin, async (req: any,
     res.json({ success: true, newBalance });
   } catch (e) {
     await client.query('ROLLBACK');
-    Sentry.captureException(e);
+    logError(e, 'wallet-credit-failed', req);
     console.error('Wallet credit error:', e);
     res.status(500).json({ error: 'Failed to credit wallet' });
   } finally {
@@ -2461,7 +2467,7 @@ app.post('/api/admin/delivery-boys', authenticate, isAdmin, async (req, res) => 
     await auditLog(req, 'CREATE_DELIVERY_STAFF', 'user', newStaffId.toString(), null, { name, email, phone });
     res.json({ success: true, id: newStaffId });
   } catch (e: any) {
-    Sentry.captureException(e);
+    logError(e, 'add-delivery-boy-failed', req);
     console.error('Error adding delivery boy:', e);
     res.status(400).json({ error: 'Email already exists or invalid data' });
   }
@@ -2478,7 +2484,7 @@ app.patch('/api/admin/delivery-boys/:id', authenticate, isAdmin, async (req, res
     );
     res.json({ success: true });
   } catch (e) {
-    Sentry.captureException(e);
+    logError(e, 'update-delivery-boy-failed', req);
     res.status(500).json({ error: 'Failed to update delivery staff' });
   }
 });
@@ -2495,7 +2501,7 @@ app.delete('/api/admin/delivery-boys/:id', authenticate, isAdmin, async (req, re
     await db.query("DELETE FROM users WHERE id = $1 AND role = 'delivery_boy'", [id]);
     res.json({ success: true });
   } catch (e) {
-    Sentry.captureException(e);
+    logError(e, 'delete-delivery-boy-failed', req);
     res.status(500).json({ error: 'Failed to delete delivery staff' });
   }
 });
@@ -2512,7 +2518,7 @@ app.patch('/api/admin/orders/:id/assign', authenticate, isAdmin, async (req, res
     
     res.json({ success: true });
   } catch (e) {
-    Sentry.captureException(e);
+    logError(e, 'assign-delivery-boy-failed', req);
     res.status(500).json({ error: 'Failed to assign delivery boy' });
   }
 });
@@ -2531,7 +2537,7 @@ app.post('/api/admin/categories', authenticate, isAdmin, async (req, res) => {
     console.log(`[Admin] Category added successfully with ID: ${result.rows[0].id}`);
     res.json({ success: true, id: result.rows[0].id });
   } catch (e: any) {
-    Sentry.captureException(e);
+    logError(e, 'add-category-failed', req);
     console.error('[Admin] Error adding category:', e.message);
     res.status(400).json({ error: 'Category already exists or invalid name' });
   }
@@ -2552,7 +2558,7 @@ app.delete('/api/admin/categories/:id', authenticate, isAdmin, async (req, res) 
     await db.query('DELETE FROM categories WHERE id = $1', [categoryId]);
     res.json({ success: true });
   } catch (e: any) {
-    Sentry.captureException(e);
+    logError(e, 'delete-category-failed', req);
     console.error('Delete category error:', e);
     res.status(500).json({ error: `Failed to delete category: ${e.message}` });
   }
@@ -2573,7 +2579,7 @@ app.post('/api/admin/categories/:id/delete', authenticate, isAdmin, async (req, 
     await db.query('DELETE FROM categories WHERE id = $1', [categoryId]);
     res.json({ success: true });
   } catch (e: any) {
-    Sentry.captureException(e);
+    logError(e, 'delete-category-post-fallback-failed', req);
     console.error('Delete category error (POST fallback):', e);
     res.status(500).json({ error: `Failed to delete category: ${e.message}` });
   }
@@ -2610,7 +2616,7 @@ app.patch('/api/admin/categories/:id', authenticate, isAdmin, async (req, res) =
     if (result.rowCount === 0) return res.status(404).json({ error: 'Category not found' });
     res.json({ success: true, category: result.rows[0] });
   } catch (e) {
-    Sentry.captureException(e);
+    logError(e, 'update-category-failed', req);
     console.error('Update category error:', e);
     res.status(500).json({ error: 'Failed to update category' });
   }
@@ -2725,7 +2731,7 @@ app.get('/api/delivery/earnings', authenticate, isDeliveryBoy, async (req: any, 
       recent: recent.rows
     });
   } catch (e) {
-    Sentry.captureException(e);
+    logError(e, 'fetch-delivery-earnings-failed', req);
     res.status(500).json({ error: 'Failed to fetch earnings' });
   }
 });
@@ -2756,7 +2762,7 @@ app.post('/api/delivery/orders/:id/proof', authenticate, isDeliveryBoy, upload.s
     
     res.json({ success: true, proof_image: photoUrl });
   } catch (e) {
-    Sentry.captureException(e);
+    logError(e, 'upload-proof-failed', req);
     console.error('Error uploading proof:', e);
     res.status(500).json({ error: 'Failed to upload proof of delivery' });
   }
@@ -2805,7 +2811,7 @@ app.get('/api/delivery-zones', async (req, res) => {
     const zonesRes = await db.query('SELECT * FROM delivery_zones WHERE is_active = true ORDER BY name ASC');
     res.json(zonesRes.rows);
   } catch (error) {
-    Sentry.captureException(error);
+    logError(error, 'fetch-delivery-zones-failed', req);
     res.status(500).json({ error: 'Failed to fetch delivery zones' });
   }
 });
@@ -2815,7 +2821,7 @@ app.get('/api/admin/delivery-zones', authenticate, isAdmin, async (req, res) => 
     const zonesRes = await db.query('SELECT * FROM delivery_zones ORDER BY name ASC');
     res.json(zonesRes.rows);
   } catch (error) {
-    Sentry.captureException(error);
+    logError(error, 'fetch-admin-delivery-zones-failed', req);
     res.status(500).json({ error: 'Failed to fetch delivery zones' });
   }
 });
@@ -2831,7 +2837,7 @@ app.post('/api/admin/delivery-zones', authenticate, isAdmin, async (req, res) =>
     );
     res.json(result.rows[0]);
   } catch (error) {
-    Sentry.captureException(error);
+    logError(error, 'add-delivery-zone-failed', req);
     res.status(500).json({ error: 'Failed to add delivery zone' });
   }
 });
@@ -2866,7 +2872,7 @@ app.patch('/api/admin/delivery-zones/:id', authenticate, isAdmin, async (req, re
     
     res.json(result.rows[0]);
   } catch (error) {
-    Sentry.captureException(error);
+    logError(error, 'update-delivery-zone-failed', req);
     res.status(500).json({ error: 'Failed to update delivery zone' });
   }
 });
@@ -2877,7 +2883,7 @@ app.delete('/api/admin/delivery-zones/:id', authenticate, isAdmin, async (req, r
     if (result.rowCount === 0) return res.status(404).json({ error: 'Delivery zone not found' });
     res.json({ success: true });
   } catch (error) {
-    Sentry.captureException(error);
+    logError(error, 'delete-delivery-zone-failed', req);
     res.status(500).json({ error: 'Failed to delete delivery zone' });
   }
 });
@@ -2896,7 +2902,7 @@ app.get('/api/promo-codes/active', async (req, res) => {
     `);
     res.json(result.rows);
   } catch (error) {
-    Sentry.captureException(error);
+    logError(error, 'fetch-active-promo-codes-failed', req);
     console.error('Error fetching active promo codes:', error);
     res.status(500).json({ error: 'Failed to fetch active promo codes' });
   }
@@ -2913,7 +2919,7 @@ app.get('/api/admin/promo-codes', authenticate, isAdmin, async (req, res) => {
     `);
     res.json(result.rows);
   } catch (error) {
-    Sentry.captureException(error);
+    logError(error, 'fetch-admin-promo-codes-failed', req);
     res.status(500).json({ error: 'Failed to fetch promo codes' });
   }
 });
@@ -2929,7 +2935,7 @@ app.post('/api/admin/promo-codes', authenticate, isAdmin, async (req, res) => {
     await auditLog(req, 'CREATE_PROMO', 'promo_code', newPromo.id.toString(), null, newPromo);
     res.status(201).json(newPromo);
   } catch (error) {
-    Sentry.captureException(error);
+    logError(error, 'create-promo-code-failed', req);
     console.error('Error creating promo code:', error);
     res.status(500).json({ error: 'Failed to create promo code' });
   }
@@ -2946,7 +2952,7 @@ app.put('/api/admin/promo-codes/:id', authenticate, isAdmin, async (req, res) =>
     if (result.rowCount === 0) return res.status(404).json({ error: 'Promo code not found' });
     res.json(result.rows[0]);
   } catch (error) {
-    Sentry.captureException(error);
+    logError(error, 'update-promo-code-failed', req);
     console.error('Error updating promo code:', error);
     res.status(500).json({ error: 'Failed to update promo code' });
   }
@@ -2965,7 +2971,7 @@ app.delete('/api/admin/promo-codes/:id', authenticate, isAdmin, async (req, res)
     
     res.json({ message: 'Promo code deleted successfully' });
   } catch (error) {
-    Sentry.captureException(error);
+    logError(error, 'delete-promo-code-failed', req);
     res.status(500).json({ error: 'Failed to delete promo code' });
   }
 });
@@ -2981,14 +2987,14 @@ app.patch('/api/admin/promo-codes/:id', authenticate, isAdmin, async (req, res) 
     if (result.rowCount === 0) return res.status(404).json({ error: 'Promo code not found' });
     res.json(result.rows[0]);
   } catch (error) {
-    Sentry.captureException(error);
+    logError(error, 'toggle-promo-code-status-failed', req);
     res.status(500).json({ error: 'Failed to toggle promo code status' });
   }
 });
 
 // Global Error Handler
 app.use((err: any, req: any, res: any, next: any) => {
-  Sentry.captureException(err);
+  logError(err, 'global-error-handler', req);
   console.error('Global Error Handler:', err);
   res.status(err.status || 500).json({ 
     error: err.message || 'Internal Server Error',
@@ -3007,12 +3013,12 @@ async function startServer() {
   console.log('[Server] Starting initialization...');
   
   process.on('uncaughtException', (err) => {
-    Sentry.captureException(err);
+    logError(err, 'uncaught-exception');
     console.error('[Server] Uncaught Exception:', err);
   });
   
   process.on('unhandledRejection', (reason, promise) => {
-    Sentry.captureException(reason);
+    logError(reason, 'unhandled-rejection');
     console.error('[Server] Unhandled Rejection at:', promise, 'reason:', reason);
   });
 
@@ -3025,11 +3031,11 @@ async function startServer() {
     }).then(() => {
       console.log('[Auth] Data verified');
     }).catch(dbError => {
-      Sentry.captureException(dbError);
+      logError(dbError, 'db-initialization-failed');
       console.error('[DB] Critical error during initialization:', dbError);
     });
   } catch (startupError) {
-    Sentry.captureException(startupError);
+    logError(startupError, 'server-startup-sequence-failed');
     console.error('[Server] Error during startup sequence:', startupError);
   }
 
@@ -3043,7 +3049,7 @@ async function startServer() {
       app.use(vite.middlewares);
       console.log('[Vite] Middleware integrated');
     } catch (viteError) {
-      Sentry.captureException(viteError);
+      logError(viteError, 'vite-start-failed');
       console.error('[Vite] Failed to start Vite server:', viteError);
     }
   } else {
@@ -3053,8 +3059,6 @@ async function startServer() {
       res.sendFile(path.resolve('dist', 'index.html'));
     });
   }
-
-  Sentry.setupExpressErrorHandler(app);
 
   app.use((err: any, req: any, res: any, next: any) => {
     console.error('[Error]', err);
@@ -3078,7 +3082,7 @@ async function startServer() {
       );
       console.log('[Cleanup] Old login attempts deleted');
     } catch (e) {
-      Sentry.captureException(e);
+      logError(e, 'cleanup-login-attempts-failed');
       console.error('[Cleanup] Failed to clean login attempts:', e);
     }
   }, 24 * 60 * 60 * 1000);
@@ -3089,7 +3093,7 @@ async function startServer() {
       await db.query("DELETE FROM refresh_tokens WHERE expires_at < NOW()");
       console.log('[Cleanup] Expired refresh tokens deleted');
     } catch (e) {
-      Sentry.captureException(e);
+      logError(e, 'cleanup-refresh-tokens-failed');
       console.error('[Cleanup] Failed to clean refresh tokens:', e);
     }
   }, 24 * 60 * 60 * 1000);

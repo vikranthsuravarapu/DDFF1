@@ -7,7 +7,7 @@ import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function AdminOrders() {
-  const { token } = useAuth();
+  const { token, apiFetch } = useAuth();
   const [orders, setOrders] = useState([]);
   const [deliveryBoys, setDeliveryBoys] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -23,9 +23,7 @@ export default function AdminOrders() {
 
   const fetchDeliveryBoys = async () => {
     try {
-      const res = await fetch('/api/admin/delivery-boys', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const res = await apiFetch('/api/admin/delivery-boys');
       const data = await res.json();
       setDeliveryBoys(data);
     } catch (e) {
@@ -46,9 +44,7 @@ export default function AdminOrders() {
     let url = '/api/admin/orders';
     if (statusFilter) url += `?status=${statusFilter}`;
     
-    fetch(url, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    })
+    apiFetch(url)
     .then(res => res.json())
     .then(data => {
       setOrders(data);
@@ -57,11 +53,10 @@ export default function AdminOrders() {
   };
 
   const updateStatus = async (id: number, status: string) => {
-    await fetch(`/api/admin/orders/${id}/status`, {
+    await apiFetch(`/api/admin/orders/${id}/status`, {
       method: 'PATCH',
       headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}` 
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({ status })
     });
@@ -70,11 +65,10 @@ export default function AdminOrders() {
 
   const assignDeliveryBoy = async (orderId: number, deliveryBoyId: string) => {
     if (!deliveryBoyId) return;
-    await fetch(`/api/admin/orders/${orderId}/assign`, {
+    await apiFetch(`/api/admin/orders/${orderId}/assign`, {
       method: 'PATCH',
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({ delivery_boy_id: parseInt(deliveryBoyId) })
     });

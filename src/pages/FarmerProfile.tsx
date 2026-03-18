@@ -8,7 +8,7 @@ import ProductCard from '../components/ProductCard';
 export default function FarmerProfile() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, apiFetch } = useAuth();
   const [farmer, setFarmer] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
@@ -19,7 +19,7 @@ export default function FarmerProfile() {
   }, [user, navigate]);
 
   useEffect(() => {
-    fetch(`/api/farmers/${id}`)
+    apiFetch(`/api/farmers/${id}`)
       .then(res => res.json())
       .then(data => {
         setFarmer(data);

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Tag, Copy, Check, ShoppingBag, Clock, Info, Package, Percent, IndianRupee } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 
 interface PromoCode {
   id: number;
@@ -23,6 +24,7 @@ export default function Offers() {
   const [offers, setOffers] = useState<PromoCode[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const { apiFetch } = useAuth();
 
   useEffect(() => {
     fetchOffers();
@@ -30,7 +32,7 @@ export default function Offers() {
 
   const fetchOffers = async () => {
     try {
-      const response = await fetch('/api/promo-codes/active');
+      const response = await apiFetch('/api/promo-codes/active');
       const data = await response.json();
       if (Array.isArray(data)) {
         setOffers(data);

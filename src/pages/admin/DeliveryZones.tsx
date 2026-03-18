@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { MapPin, Plus, Trash2, Edit2, Save, X, Check, AlertCircle, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface DeliveryZone {
   id: number;
@@ -12,6 +13,7 @@ interface DeliveryZone {
 }
 
 export default function DeliveryZones() {
+  const { apiFetch } = useAuth();
   const [zones, setZones] = useState<DeliveryZone[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -26,10 +28,7 @@ export default function DeliveryZones() {
 
   const fetchZones = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch('/api/admin/delivery-zones', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const response = await apiFetch('/api/admin/delivery-zones');
       if (!response.ok) throw new Error('Failed to fetch delivery zones');
       const data = await response.json();
       setZones(data);
@@ -47,12 +46,10 @@ export default function DeliveryZones() {
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch('/api/admin/delivery-zones', {
+      const response = await apiFetch('/api/admin/delivery-zones', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify(formData)
       });
@@ -67,12 +64,10 @@ export default function DeliveryZones() {
 
   const handleUpdate = async (id: number, updates: Partial<DeliveryZone>) => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`/api/admin/delivery-zones/${id}`, {
+      const response = await apiFetch(`/api/admin/delivery-zones/${id}`, {
         method: 'PATCH',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify(updates)
       });
@@ -87,10 +82,8 @@ export default function DeliveryZones() {
   const handleDelete = async (id: number) => {
     if (!confirm('Are you sure you want to delete this delivery zone?')) return;
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`/api/admin/delivery-zones/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
+      const response = await apiFetch(`/api/admin/delivery-zones/${id}`, {
+        method: 'DELETE'
       });
       if (!response.ok) throw new Error('Failed to delete delivery zone');
       await fetchZones();

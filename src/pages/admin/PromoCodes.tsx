@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Plus, Edit2, Trash2, Tag, Percent, IndianRupee, Calendar, Users, Package } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface PromoCode {
   id: number;
@@ -22,6 +23,7 @@ interface Product {
 }
 
 export default function AdminPromoCodes() {
+  const { apiFetch } = useAuth();
   const [promoCodes, setPromoCodes] = useState<PromoCode[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -45,7 +47,7 @@ export default function AdminPromoCodes() {
 
   const fetchProducts = async () => {
     try {
-      const response = await fetch('/api/products');
+      const response = await apiFetch('/api/products');
       const data = await response.json();
       if (Array.isArray(data)) {
         setProducts(data);
@@ -60,9 +62,7 @@ export default function AdminPromoCodes() {
 
   const fetchPromoCodes = async () => {
     try {
-      const response = await fetch('/api/admin/promo-codes', {
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-      });
+      const response = await apiFetch('/api/admin/promo-codes');
       const data = await response.json();
       if (Array.isArray(data)) {
         setPromoCodes(data);
@@ -89,11 +89,10 @@ export default function AdminPromoCodes() {
     const method = editingPromo ? 'PUT' : 'POST';
 
     try {
-      const response = await fetch(url, {
+      const response = await apiFetch(url, {
         method,
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           ...formData,
@@ -132,11 +131,10 @@ export default function AdminPromoCodes() {
 
   const toggleStatus = async (id: number, currentStatus: boolean) => {
     try {
-      const response = await fetch(`/api/admin/promo-codes/${id}`, {
+      const response = await apiFetch(`/api/admin/promo-codes/${id}`, {
         method: 'PATCH',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({ is_active: !currentStatus })
       });
@@ -149,9 +147,8 @@ export default function AdminPromoCodes() {
   const handleDelete = async (id: number) => {
     if (!confirm('Are you sure you want to delete this promo code?')) return;
     try {
-      const response = await fetch(`/api/admin/promo-codes/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      const response = await apiFetch(`/api/admin/promo-codes/${id}`, {
+        method: 'DELETE'
       });
       if (response.ok) fetchPromoCodes();
     } catch (error) {

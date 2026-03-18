@@ -16,7 +16,7 @@ export default function Home() {
   const [bundles, setBundles] = useState<any[]>([]);
   const [categories, setCategories] = useState([]);
   const [activePromos, setActivePromos] = useState<any[]>([]);
-  const { isDeliveryAvailable, isCheckingDelivery, user } = useAuth();
+  const { isDeliveryAvailable, isCheckingDelivery, user, apiFetch } = useAuth();
   const navigate = useNavigate();
   const [addingBundleId, setAddingBundleId] = useState<number | null>(null);
 
@@ -30,10 +30,10 @@ export default function Home() {
     const fetchData = async () => {
       try {
         const [productsRes, flashRes, categoriesRes, bundlesRes] = await Promise.all([
-          fetch('/api/products?featured=1'),
-          fetch('/api/products/flash-sales'),
-          fetch('/api/categories'),
-          fetch('/api/bundles')
+          apiFetch('/api/products?featured=1'),
+          apiFetch('/api/products/flash-sales'),
+          apiFetch('/api/categories'),
+          apiFetch('/api/bundles')
         ]);
         const [productsData, flashData, categoriesData, bundlesData] = await Promise.all([
           productsRes.json(),
@@ -69,7 +69,7 @@ export default function Home() {
   useEffect(() => {
     const fetchPromos = async () => {
       try {
-        const res = await fetch('/api/promo-codes/active');
+        const res = await apiFetch('/api/promo-codes/active');
         if (res.ok) {
           const data = await res.json();
           setActivePromos(Array.isArray(data) ? data : []);

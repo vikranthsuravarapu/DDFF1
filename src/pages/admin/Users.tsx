@@ -5,24 +5,26 @@ import { analyzeAdminData } from '../../services/geminiService';
 import ReactMarkdown from 'react-markdown';
 
 export default function AdminUsers() {
-  const { token } = useAuth();
+  const { token, apiFetch } = useAuth();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   useEffect(() => {
-    fetch('/api/admin/users', {
-      headers: { 'Authorization': `Bearer ${token}` }
-    })
-    .then(res => res.json())
-    .then(data => {
-      setUsers(data);
-      setLoading(true);
-    })
-    .catch(err => console.error(err))
-    .finally(() => setLoading(false));
-  }, [token]);
+    const fetchUsers = async () => {
+      try {
+        const res = await apiFetch('/api/admin/users');
+        const data = await res.json();
+        setUsers(data);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchUsers();
+  }, [apiFetch]);
 
   const handleAIAnalysis = async () => {
     if (users.length === 0) return;

@@ -18,7 +18,7 @@ export default function Register() {
   const [success, setSuccess] = useState(false);
   const [verificationToken, setVerificationToken] = useState('');
   const [errors, setErrors] = useState<any>({});
-  const { login, isAuthenticated, user } = useAuth();
+  const { login, isAuthenticated, user, apiFetch } = useAuth();
   const navigate = useNavigate();
   const [googleConfig, setGoogleConfig] = useState<{
     redirect_uri: string, 
@@ -78,7 +78,7 @@ export default function Register() {
     setError('');
 
     try {
-      const res = await fetch('/api/auth/register', {
+      const res = await apiFetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData)
@@ -299,7 +299,7 @@ export default function Register() {
           type="button"
           onClick={async () => {
             try {
-              const res = await fetch('/api/auth/google/url');
+              const res = await apiFetch('/api/auth/google/url');
               const data = await res.json();
               if (!res.ok) {
                 setError(data.error || 'Failed to get Google Auth URL');
@@ -326,7 +326,7 @@ export default function Register() {
             type="button"
             onClick={async () => {
               try {
-                const res = await fetch('/api/auth/google/config');
+                const res = await apiFetch('/api/auth/google/config');
                 const data = await res.json();
                 setGoogleConfig(data);
                 setShowDebug(true);
@@ -390,7 +390,7 @@ export default function Register() {
                   setTesting(true);
                   setTestResult(null);
                   try {
-                    const res = await fetch('/api/auth/google/test-secret');
+                    const res = await apiFetch('/api/auth/google/test-secret');
                     const data = await res.json();
                     setTestResult({
                       status: data.status,

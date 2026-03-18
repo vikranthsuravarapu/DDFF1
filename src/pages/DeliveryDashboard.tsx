@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function DeliveryDashboard() {
-  const { user, token, logout } = useAuth();
+  const { user, token, logout, apiFetch } = useAuth();
   const [orders, setOrders] = useState<any[]>([]);
   const [earnings, setEarnings] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -23,9 +23,7 @@ export default function DeliveryDashboard() {
   const fetchOrders = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/delivery/orders', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const res = await apiFetch('/api/delivery/orders');
       const data = await res.json();
       setOrders(data);
     } catch (e) {
@@ -38,9 +36,7 @@ export default function DeliveryDashboard() {
   const fetchEarnings = async () => {
     setEarningsLoading(true);
     try {
-      const res = await fetch('/api/delivery/earnings', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const res = await apiFetch('/api/delivery/earnings');
       const data = await res.json();
       setEarnings(data);
     } catch (e) {
@@ -60,11 +56,10 @@ export default function DeliveryDashboard() {
   const updateStatus = async (orderId: number, status: string) => {
     setUpdating(orderId);
     try {
-      const res = await fetch(`/api/delivery/orders/${orderId}/status`, {
+      const res = await apiFetch(`/api/delivery/orders/${orderId}/status`, {
         method: 'PATCH',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({ status })
       });
@@ -99,11 +94,8 @@ export default function DeliveryDashboard() {
     formData.append('proof', podImage);
 
     try {
-      const res = await fetch(`/api/delivery/orders/${selectedOrderId}/proof`, {
+      const res = await apiFetch(`/api/delivery/orders/${selectedOrderId}/proof`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
         body: formData
       });
 

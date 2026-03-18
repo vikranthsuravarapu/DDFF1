@@ -11,7 +11,7 @@ export default function OrderDetails() {
   const { t } = useLanguage();
   const { id } = useParams();
   const navigate = useNavigate();
-  const { token, user, isAdmin } = useAuth();
+  const { token, user, isAdmin, apiFetch } = useAuth();
   const { addItem, setNotification } = useCart();
   const [order, setOrder] = useState<any>(null);
   const [tracking, setTracking] = useState<any>(null);
@@ -29,12 +29,8 @@ export default function OrderDetails() {
     setLoading(true);
     try {
       const [orderRes, trackingRes] = await Promise.all([
-        fetch(`/api/orders/${id}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        }),
-        fetch(`/api/orders/${id}/tracking`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        })
+        apiFetch(`/api/orders/${id}`),
+        apiFetch(`/api/orders/${id}/tracking`)
       ]);
 
       const orderData = await orderRes.json();
@@ -54,11 +50,10 @@ export default function OrderDetails() {
     setIsCancelling(true);
     setCancelError(null);
     try {
-      const res = await fetch(`/api/orders/${id}/cancel`, {
+      const res = await apiFetch(`/api/orders/${id}/cancel`, {
         method: 'PATCH',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({ 
           cancellation_reason: cancellationReason,
@@ -100,7 +95,7 @@ export default function OrderDetails() {
         return;
       }
 
-      const productsRes = await fetch('/api/products');
+      const productsRes = await apiFetch('/api/products');
       const allProducts = await productsRes.json();
 
       let addedCount = 0;

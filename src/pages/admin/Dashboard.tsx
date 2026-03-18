@@ -7,16 +7,14 @@ import { formatCurrency } from '../../utils/format';
 import ReactMarkdown from 'react-markdown';
 
 export default function AdminDashboard() {
-  const { token } = useAuth();
+  const { token, apiFetch } = useAuth();
   const navigate = useNavigate();
   const [stats, setStats] = useState<any>(null);
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   useEffect(() => {
-    fetch('/api/admin/stats', {
-      headers: { 'Authorization': `Bearer ${token}` }
-    })
+    apiFetch('/api/admin/stats')
     .then(res => res.json())
     .then(setStats);
   }, [token]);

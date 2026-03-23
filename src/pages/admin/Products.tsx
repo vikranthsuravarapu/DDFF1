@@ -519,7 +519,7 @@ export default function AdminProducts() {
                   src={product.image_url || `https://picsum.photos/seed/${product.id}/400/225`} 
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                   alt={product.name}
-                  referrerPolicy="no-referrer"
+                  referrerPolicy="strict-origin-when-cross-origin"
                   onError={(e) => {
                     const target = e.target as HTMLImageElement;
                     target.src = `https://picsum.photos/seed/${product.id}/400/225`;
@@ -638,7 +638,7 @@ export default function AdminProducts() {
                             src={product.image_url || `https://picsum.photos/seed/${product.id}/100/100`}
                             className="w-full h-full object-cover"
                             alt={product.name}
-                            referrerPolicy="no-referrer"
+                            referrerPolicy="strict-origin-when-cross-origin"
                           />
                         </div>
                         <div>
@@ -836,7 +836,7 @@ export default function AdminProducts() {
                           src={formData.image_url} 
                           alt="Preview" 
                           className="w-full h-full object-cover"
-                          referrerPolicy="no-referrer"
+                          referrerPolicy="strict-origin-when-cross-origin"
                           onError={(e) => {
                             const target = e.target as HTMLImageElement;
                             target.src = 'https://picsum.photos/seed/error/200/200';

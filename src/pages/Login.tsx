@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState, useEffect, FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Mail, Lock, ArrowRight } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -37,7 +37,7 @@ export default function Login() {
     return null;
   });
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (!lockoutTime) return;
 
     const interval = setInterval(() => {
@@ -64,13 +64,13 @@ export default function Login() {
     // Simple temporary feedback could be added here if needed
   };
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (isAuthenticated && user?.role === 'delivery_boy') {
       navigate('/delivery');
     }
   }, [isAuthenticated, user, navigate]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
         const { token, refreshToken, user } = event.data;
@@ -93,7 +93,7 @@ export default function Login() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!validate()) return;
     

@@ -47,7 +47,7 @@ const ProductCard: React.FC<{ product: any, onWishlistUpdate?: () => void }> = (
     return () => clearInterval(timer);
   }, [product.sale_ends_at, isActiveSale]);
 
-  const cartItem = items.find(i => i.id === product.id);
+  const cartItem = items.find(i => i.id === product.id && i.price === displayPrice);
   const quantityInCart = cartItem ? cartItem.quantity : 0;
 
   const isCurrentlyInWishlist = isInWishlist(product.id);
@@ -113,7 +113,7 @@ const ProductCard: React.FC<{ product: any, onWishlistUpdate?: () => void }> = (
             src={product.image_url || `https://picsum.photos/seed/${product.id}/400/400`} 
             alt={product.name}
             className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
-            referrerPolicy="no-referrer"
+            referrerPolicy="strict-origin-when-cross-origin"
             onError={(e) => {
               const target = e.target as HTMLImageElement;
               target.src = `https://picsum.photos/seed/${product.id}/400/400`;
@@ -223,7 +223,7 @@ const ProductCard: React.FC<{ product: any, onWishlistUpdate?: () => void }> = (
             ) : quantityInCart > 0 ? (
               <div className="flex items-center bg-gray-100 dark:bg-slate-800 rounded-lg sm:rounded-xl p-0.5 sm:p-0.5 shadow-inner border border-black/5 dark:border-white/5">
                 <button 
-                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); updateQuantity(product.id, -1); }}
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); cartItem && updateQuantity(cartItem.cartItemId, -1); }}
                   className="p-0.5 sm:p-1.5 hover:bg-white dark:hover:bg-slate-700 rounded-md sm:rounded-lg transition-colors text-gray-600 dark:text-gray-300"
                 >
                   <span className="sr-only">Decrease</span>
@@ -231,7 +231,7 @@ const ProductCard: React.FC<{ product: any, onWishlistUpdate?: () => void }> = (
                 </button>
                 <span className="w-4 sm:w-6 text-center font-black text-[10px] sm:text-xs text-gray-900 dark:text-white">{quantityInCart}</span>
                 <button 
-                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); updateQuantity(product.id, 1); }}
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); cartItem && updateQuantity(cartItem.cartItemId, 1); }}
                   className="p-0.5 sm:p-1.5 hover:bg-white dark:hover:bg-slate-700 rounded-md sm:rounded-lg transition-colors text-[#D4820A]"
                 >
                   <span className="sr-only">Increase</span>

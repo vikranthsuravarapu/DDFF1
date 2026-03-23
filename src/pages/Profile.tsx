@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Package, MapPin, Clock, ChevronRight, User as UserIcon, X, Truck, Edit, Save, Loader2, RefreshCw, Wallet, Search, Heart } from 'lucide-react';
+import { Package, MapPin, Clock, ChevronRight, User as UserIcon, X, Truck, Edit, Save, Loader2, RefreshCw, Wallet, Search, Heart, Sparkles } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useCart } from '../contexts/CartContext';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -25,9 +25,11 @@ export default function Profile() {
   const [addressesLoading, setAddressesLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('');
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState<'orders' | 'wishlist' | 'addresses' | 'wallet'>('orders');
+  const [activeTab, setActiveTab] = useState<'orders' | 'wishlist' | 'addresses' | 'wallet' | 'subscriptions'>('orders');
   const [walletTransactions, setWalletTransactions] = useState([]);
   const [walletLoading, setWalletLoading] = useState(true);
+  const [subscriptions, setSubscriptions] = useState([]);
+  const [subscriptionsLoading, setSubscriptionsLoading] = useState(true);
   const [referralData, setReferralData] = useState<{referral_code: string, successful_referrals: number} | null>(null);
   const [referralLoading, setReferralLoading] = useState(true);
   
@@ -89,6 +91,44 @@ export default function Profile() {
     setWalletLoading(false);
   };
 
+  const fetchSubscriptions = async () => {
+    setSubscriptionsLoading(true);
+    try {
+      const res = await apiFetch('/api/subscriptions');
+      const data = await res.json();
+      setSubscriptions(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Failed to fetch subscriptions:', err);
+    } finally {
+      setSubscriptionsLoading(false);
+    }
+  };
+
+  const handleToggleSubscription = async (id: number, isActive: boolean) => {
+    try {
+      const res = await apiFetch(`/api/subscriptions/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: !isActive })
+      });
+      if (res.ok) fetchSubscriptions();
+    } catch (err) {
+      console.error('Failed to toggle subscription:', err);
+    }
+  };
+
+  const handleCancelSubscription = async (id: number) => {
+    if (!confirm(t('cancel_subscription_confirm'))) return;
+    try {
+      const res = await apiFetch(`/api/subscriptions/${id}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) fetchSubscriptions();
+    } catch (err) {
+      console.error('Failed to cancel subscription:', err);
+    }
+  };
+
   const fetchReferralData = async () => {
     setReferralLoading(true);
     try {
@@ -110,6 +150,7 @@ export default function Profile() {
       fetchAddresses();
       fetchWalletTransactions();
       fetchReferralData();
+      fetchSubscriptions();
       
       apiFetch('/api/delivery-zones')
         .then(res => res.json())
@@ -228,9 +269,12 @@ export default function Profile() {
         const currentProduct = allProducts.find((p: any) => p.id === item.product_id);
         
         if (currentProduct && currentProduct.stock > 0) {
+          const isActiveSale = currentProduct.sale_price !== null && currentProduct.sale_ends_at && new Date(currentProduct.sale_ends_at) > new Date();
+          const displayPrice = isActiveSale ? currentProduct.sale_price : currentProduct.price;
+          
           // Add only what's available
           const qtyToAdd = Math.min(item.quantity, currentProduct.stock);
-          addItem(currentProduct, qtyToAdd);
+          addItem({ ...currentProduct, price: displayPrice }, qtyToAdd);
           addedCount++;
           
           if (qtyToAdd < item.quantity) {
@@ -422,6 +466,13 @@ export default function Profile() {
           <span>{t('wallet')}</span>
         </button>
         <button 
+          onClick={() => setActiveTab('subscriptions')}
+          className={`px-6 py-4 font-bold transition-all border-b-2 whitespace-nowrap flex items-center space-x-2 ${activeTab === 'subscriptions' ? 'border-[#D4820A] text-[#D4820A]' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+        >
+          <RefreshCw className="w-4 h-4" />
+          <span>{t('subscriptions')}</span>
+        </button>
+        <button 
           onClick={() => setActiveTab('orders')}
           className={`px-6 py-4 font-bold transition-all border-b-2 whitespace-nowrap flex items-center space-x-2 ${activeTab === 'orders' ? 'border-[#D4820A] text-[#D4820A]' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
         >
@@ -510,6 +561,82 @@ export default function Profile() {
           </div>
         </div>
       )}
+      {activeTab === 'subscriptions' && (
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-slate-100">{t('my_subscriptions')}</h2>
+            <div className="bg-emerald-50 dark:bg-emerald-900/20 px-4 py-2 rounded-xl border border-emerald-100 dark:border-emerald-800/30 flex items-center space-x-2">
+              <Sparkles className="w-4 h-4 text-emerald-600" />
+              <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400">{t('subscriber_discount_active')}</span>
+            </div>
+          </div>
+
+          {subscriptionsLoading ? (
+            <div className="space-y-4">
+              {[1, 2].map(i => <div key={i} className="h-40 bg-white dark:bg-slate-800 rounded-2xl animate-pulse transition-colors" />)}
+            </div>
+          ) : subscriptions.length > 0 ? (
+            <div className="grid grid-cols-1 gap-6">
+              {subscriptions.map((sub: any) => (
+                <div key={sub.id} className="bg-white dark:bg-slate-800 p-6 rounded-3xl border border-black/5 dark:border-white/10 flex flex-col md:flex-row md:items-center justify-between gap-6 transition-all hover:shadow-lg hover:shadow-black/5 dark:hover:shadow-white/5">
+                  <div className="flex items-center space-x-6">
+                    <div className="relative">
+                      <img src={sub.image_url} alt={sub.product_name} className="w-24 h-24 rounded-2xl object-cover" />
+                      {!sub.is_active && (
+                        <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] rounded-2xl flex items-center justify-center">
+                          <span className="text-white text-[10px] font-bold uppercase tracking-widest">{t('paused')}</span>
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-bold text-gray-900 dark:text-white">{sub.product_name}</h3>
+                      <div className="flex items-center space-x-3 mt-1">
+                        <span className="bg-[#D4820A]/10 text-[#D4820A] px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider">
+                          {t(sub.frequency)}
+                        </span>
+                        <span className="text-sm text-gray-500 dark:text-slate-400 font-medium">
+                          {sub.quantity} {sub.unit} • {sub.delivery_slot}
+                        </span>
+                      </div>
+                      <div className="flex items-center space-x-2 mt-3 text-xs text-gray-400 dark:text-slate-500">
+                        <Clock className="w-3 h-3" />
+                        <span>{t('next_delivery')}: {new Date(sub.next_delivery_date).toLocaleDateString()}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-3">
+                    <button 
+                      onClick={() => handleToggleSubscription(sub.id, sub.is_active)}
+                      className={`px-6 py-3 rounded-2xl font-bold text-sm transition-all ${
+                        sub.is_active 
+                          ? 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200' 
+                          : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-lg shadow-emerald-600/20'
+                      }`}
+                    >
+                      {sub.is_active ? t('pause') : t('resume')}
+                    </button>
+                    <button 
+                      onClick={() => handleCancelSubscription(sub.id)}
+                      className="p-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-2xl hover:bg-red-100 transition-colors"
+                      title={t('cancel_subscription')}
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="bg-white dark:bg-slate-800 p-12 rounded-3xl border border-black/5 dark:border-white/10 text-center space-y-4 transition-colors">
+              <RefreshCw className="w-12 h-12 text-gray-300 dark:text-slate-600 mx-auto" />
+              <p className="text-gray-500 dark:text-slate-300 font-medium">{t('no_subscriptions_found')}</p>
+              <Link to="/products" className="inline-block text-[#D4820A] font-bold">{t('browse_products')}</Link>
+            </div>
+          )}
+        </div>
+      )}
+
       {activeTab === 'orders' && (
         <div className="space-y-6">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">

@@ -308,6 +308,19 @@ const initDb = async () => {
       );
       CREATE INDEX IF NOT EXISTS idx_refresh_tokens_token ON refresh_tokens(token);
       CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON refresh_tokens(user_id);
+
+      CREATE TABLE IF NOT EXISTS subscriptions (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id),
+        product_id INTEGER REFERENCES products(id),
+        quantity INTEGER DEFAULT 1,
+        frequency VARCHAR(20) DEFAULT 'daily',
+        delivery_slot VARCHAR(50),
+        address_id INTEGER REFERENCES saved_addresses(id),
+        is_active BOOLEAN DEFAULT true,
+        next_delivery_date DATE,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
     `);
 
     // Seed Data

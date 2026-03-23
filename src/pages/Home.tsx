@@ -54,14 +54,19 @@ export default function Home() {
 
   const handleAddBundle = async (bundle: any) => {
     setAddingBundleId(bundle.id);
+    
+    // Calculate the discount factor
+    const totalOriginal = bundle.items.reduce((sum: number, item: any) => sum + (Number(item.price) * item.quantity), 0);
+    const discountFactor = Number(bundle.bundle_price) / totalOriginal;
+    
     for (const item of bundle.items) {
       addItem({
         id: item.product_id,
         name: item.name,
-        price: item.price,
         image_url: item.image_url,
-        unit: item.unit
-      }, item.quantity);
+        unit: item.unit,
+        stock: 999 // Assume stock is available for bundles or handle separately
+      }, item.quantity, Number(item.price) * discountFactor);
     }
     setTimeout(() => setAddingBundleId(null), 2000);
   };
@@ -102,7 +107,7 @@ export default function Home() {
             src="https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=1920&q=80" 
             className="w-full h-full object-cover"
             alt="Farm background"
-            referrerPolicy="no-referrer"
+            referrerPolicy="strict-origin-when-cross-origin"
           />
         </div>
         <div className="relative z-10 px-8 md:px-16 max-w-2xl space-y-6">
@@ -178,7 +183,7 @@ export default function Home() {
                     src={bundle.image_url} 
                     alt={bundle.name}
                     className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
-                    referrerPolicy="no-referrer"
+                    referrerPolicy="strict-origin-when-cross-origin"
                   />
                   <div className="absolute top-4 left-4 bg-emerald-500 text-white px-4 py-2 rounded-2xl font-black text-sm shadow-lg">
                     SAVE ₹{(Number(bundle.original_total) - Number(bundle.bundle_price)).toFixed(0)}

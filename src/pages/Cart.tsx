@@ -74,13 +74,13 @@ export default function Cart() {
         {/* Items List */}
         <div className="lg:col-span-2 space-y-4">
           {items.map((item) => (
-            <div key={item.id} className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-black/5 dark:border-white/10 flex items-center space-x-4 transition-colors">
+            <div key={item.cartItemId} className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-black/5 dark:border-white/10 flex items-center space-x-4 transition-colors">
               <div className="w-24 h-24 bg-[#F0E6D3] dark:bg-slate-700 rounded-xl overflow-hidden flex-shrink-0 transition-colors">
                 <img 
                   src={item.image_url || `https://picsum.photos/seed/${item.id}/200/200`} 
                   alt={item.name} 
                   className="w-full h-full object-cover"
-                  referrerPolicy="no-referrer"
+                  referrerPolicy="strict-origin-when-cross-origin"
                 />
               </div>
               
@@ -89,16 +89,16 @@ export default function Cart() {
                 <p className="text-gray-500 dark:text-slate-300 text-sm">{item.unit}</p>
                 <div className="mt-2 flex items-center space-x-4">
                   <div className="flex items-center border border-black/10 dark:border-white/10 rounded-xl p-1 bg-white dark:bg-slate-700 transition-colors">
-                    <button onClick={() => updateQuantity(item.id, -1)} className="p-1 hover:bg-gray-100 dark:hover:bg-slate-600 rounded-lg text-gray-900 dark:text-slate-100"><Minus className="w-4 h-4" /></button>
+                    <button onClick={() => updateQuantity(item.cartItemId, -1)} className="p-1 hover:bg-gray-100 dark:hover:bg-slate-600 rounded-lg text-gray-900 dark:text-slate-100"><Minus className="w-4 h-4" /></button>
                     <span className="w-8 text-center font-bold text-gray-900 dark:text-white">{item.quantity}</span>
-                    <button onClick={() => updateQuantity(item.id, 1)} className="p-1 hover:bg-gray-100 dark:hover:bg-slate-600 rounded-lg text-gray-900 dark:text-slate-100"><Plus className="w-4 h-4" /></button>
+                    <button onClick={() => updateQuantity(item.cartItemId, 1)} className="p-1 hover:bg-gray-100 dark:hover:bg-slate-600 rounded-lg text-gray-900 dark:text-slate-100"><Plus className="w-4 h-4" /></button>
                   </div>
                   <span className="font-bold text-[#D4820A]">{formatCurrency(item.price * item.quantity)}</span>
                 </div>
               </div>
 
               <button 
-                onClick={() => removeItem(item.id)}
+                onClick={() => removeItem(item.cartItemId)}
                 className="p-3 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-all"
               >
                 <Trash2 className="w-5 h-5" />

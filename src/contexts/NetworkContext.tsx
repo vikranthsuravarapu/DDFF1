@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 
 interface NetworkContextType {
   isOnline: boolean;
@@ -6,7 +6,7 @@ interface NetworkContextType {
 
 const NetworkContext = createContext<NetworkContextType>({ isOnline: true });
 
-export function NetworkProvider({ children }: { children: React.ReactNode }) {
+export function NetworkProvider({ children }: { children: ReactNode }) {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
 
   useEffect(() => {

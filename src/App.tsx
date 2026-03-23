@@ -1,4 +1,4 @@
-import React from 'react';
+import { useState, useEffect, ReactNode } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { LanguageProvider } from './contexts/LanguageContext';
@@ -31,6 +31,7 @@ import AdminDeliveryStaff from './pages/admin/DeliveryStaff';
 import AdminPromoCodes from './pages/admin/PromoCodes';
 import AdminAuditLogs from './pages/admin/AuditLogs';
 import AdminBundles from './pages/admin/Bundles';
+import AdminSubscriptions from './pages/admin/Subscriptions';
 import FarmerProfile from './pages/FarmerProfile';
 import OrderDetails from './pages/OrderDetails';
 import DeliveryDashboard from './pages/DeliveryDashboard';
@@ -41,7 +42,7 @@ import Terms from './pages/Terms';
 import Refund from './pages/Refund';
 import NotFound from './pages/NotFound';
 
-function PrivateRoute({ children, adminOnly = false, deliveryOnly = false }: { children: React.ReactNode, adminOnly?: boolean, deliveryOnly?: boolean }) {
+function PrivateRoute({ children, adminOnly = false, deliveryOnly = false }: { children: ReactNode, adminOnly?: boolean, deliveryOnly?: boolean }) {
   const { isAuthenticated, isAdmin, user } = useAuth();
   if (!isAuthenticated) return <Navigate to="/login" />;
   if (adminOnly && !isAdmin) return <Navigate to="/" />;
@@ -50,12 +51,12 @@ function PrivateRoute({ children, adminOnly = false, deliveryOnly = false }: { c
 }
 
 function AppRoutes() {
-  const [isDarkMode, setIsDarkMode] = React.useState(() => {
+  const [isDarkMode, setIsDarkMode] = useState(() => {
     const saved = localStorage.getItem('darkMode');
     return saved === null ? true : saved === 'true';
   });
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (isDarkMode) {
       document.documentElement.classList.add('dark');
     } else {
@@ -106,6 +107,7 @@ function AppRoutes() {
           <Route path="/admin/promo-codes" element={<PrivateRoute adminOnly><AdminPromoCodes /></PrivateRoute>} />
           <Route path="/admin/audit-logs" element={<PrivateRoute adminOnly><AdminAuditLogs /></PrivateRoute>} />
           <Route path="/admin/bundles" element={<PrivateRoute adminOnly><AdminBundles /></PrivateRoute>} />
+          <Route path="/admin/subscriptions" element={<PrivateRoute adminOnly><AdminSubscriptions /></PrivateRoute>} />
 
           {/* 404 Route */}
           <Route path="*" element={<NotFound />} />

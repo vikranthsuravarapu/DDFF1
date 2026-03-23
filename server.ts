@@ -57,8 +57,13 @@ app.use(helmet({
         "data:",
         "blob:",
         "https:",
+        "https://images.unsplash.com",
+        "https://picsum.photos",
+        "https://i.imgur.com",
+        "https://*.imgix.net",
         "https://storage.googleapis.com",
-        "https://lh3.googleusercontent.com"
+        "https://lh3.googleusercontent.com",
+        "https://www.gstatic.com"
       ],
       connectSrc: [
         "'self'",
@@ -1782,6 +1787,224 @@ app.get('/api/orders', authenticate, async (req: any, res) => {
   res.json(ordersRes.rows);
 });
 
+// Subscriptions API
+app.get('/api/subscriptions', authenticate, async (req: any, res) => {
+  const userId = req.user.id;
+  try {
+    const result = await db.query(`
+      SELECT s.*, p.name as product_name, p.image_url as product_image, p.price as product_price,
+             p.sale_price, p.sale_ends_at, f.name as farmer_name
+      FROM subscriptions s
+      JOIN products p ON s.product_id = p.id
+      JOIN users f ON p.farmer_id = f.id
+      WHERE s.user_id = $1
+      ORDER BY s.created_at DESC
+    `, [userId]);
+    res.json(result.rows);
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to fetch subscriptions' });
+  }
+});
+
+app.post('/api/subscriptions', authenticate, [
+  body('product_id').isInt({ min: 1 }),
+  body('quantity').isInt({ min: 1 }),
+  body('frequency').isIn(['daily', 'weekly']),
+  body('delivery_slot').isIn(['Morning (8am – 12pm)', 'Evening (4pm – 8pm)']),
+  body('address_id').isInt({ min: 1 }),
+  validate
+], async (req: any, res) => {
+  const userId = req.user.id;
+  const { product_id, quantity, frequency, delivery_slot, address_id } = req.body;
+
+  try {
+    // Check if product exists
+    const productRes = await db.query('SELECT id FROM products WHERE id = $1', [product_id]);
+    if (productRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+
+    // Check if address belongs to user
+    const addressRes = await db.query('SELECT id FROM saved_addresses WHERE id = $1 AND user_id = $2', [address_id, userId]);
+    if (addressRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Address not found' });
+    }
+
+    // Set next delivery date to tomorrow
+    const nextDeliveryDate = new Date();
+    nextDeliveryDate.setDate(nextDeliveryDate.getDate() + 1);
+
+    const result = await db.query(`
+      INSERT INTO subscriptions (user_id, product_id, quantity, frequency, delivery_slot, address_id, next_delivery_date)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING *
+    `, [userId, product_id, quantity, frequency, delivery_slot, address_id, nextDeliveryDate.toISOString().split('T')[0]]);
+
+    res.status(201).json(result.rows[0]);
+  } catch (e) {
+    console.error('Failed to create subscription:', e);
+    res.status(500).json({ error: 'Failed to create subscription' });
+  }
+});
+
+app.patch('/api/subscriptions/:id', authenticate, async (req: any, res) => {
+  const userId = req.user.id;
+  const { id } = req.params;
+  const { is_active, quantity } = req.body;
+
+  try {
+    let query = 'UPDATE subscriptions SET ';
+    let params = [];
+    let updates = [];
+
+    if (is_active !== undefined) {
+      updates.push(`is_active = $${updates.length + 1}`);
+      params.push(is_active);
+    }
+    if (quantity !== undefined) {
+      updates.push(`quantity = $${updates.length + 1}`);
+      params.push(quantity);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No updates provided' });
+    }
+
+    query += updates.join(', ') + ` WHERE id = $${updates.length + 1} AND user_id = $${updates.length + 2} RETURNING *`;
+    params.push(id, userId);
+
+    const result = await db.query(query, params);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Subscription not found' });
+    }
+    res.json(result.rows[0]);
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to update subscription' });
+  }
+});
+
+app.delete('/api/subscriptions/:id', authenticate, async (req: any, res) => {
+  const userId = req.user.id;
+  const { id } = req.params;
+  try {
+    const result = await db.query('DELETE FROM subscriptions WHERE id = $1 AND user_id = $2 RETURNING id', [id, userId]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Subscription not found' });
+    }
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to cancel subscription' });
+  }
+});
+
+app.post('/api/subscriptions/process', authenticate, isAdmin, async (req: any, res) => {
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Find active subscriptions due today or earlier
+    const today = new Date().toISOString().split('T')[0];
+    const subsRes = await client.query(`
+      SELECT s.*, p.price, p.sale_price, p.sale_ends_at, p.name as product_name, p.stock,
+             a.house_no, a.street, a.landmark, a.address, a.city, a.district, a.state, a.pincode, a.phone,
+             u.name as user_name
+      FROM subscriptions s
+      JOIN products p ON s.product_id = p.id
+      JOIN saved_addresses a ON s.address_id = a.id
+      JOIN users u ON s.user_id = u.id
+      WHERE s.is_active = true AND s.next_delivery_date <= $1
+    `, [today]);
+
+    const subscriptions = subsRes.rows;
+    let processedCount = 0;
+    let errors = [];
+
+    for (const sub of subscriptions) {
+      try {
+        // Check stock
+        if (sub.stock < sub.quantity) {
+          errors.push(`Subscription #${sub.id}: Insufficient stock for ${sub.product_name}`);
+          continue;
+        }
+
+        // Calculate price (with 5% discount for subscribers)
+        const isActiveSale = sub.sale_price !== null && sub.sale_ends_at && new Date(sub.sale_ends_at) > new Date();
+        const basePrice = isActiveSale ? Number(sub.sale_price) : Number(sub.price);
+        const discountedPrice = basePrice * 0.95; // 5% off
+        const totalAmount = discountedPrice * sub.quantity;
+
+        // Get delivery fee for the zone
+        const zoneRes = await client.query('SELECT delivery_fee, min_order_amount FROM delivery_zones WHERE pincode = $1 AND is_active = true', [sub.pincode]);
+        const zone = zoneRes.rows[0];
+        if (!zone) {
+          errors.push(`Subscription #${sub.id}: Delivery zone not found for pincode ${sub.pincode}`);
+          continue;
+        }
+
+        const deliveryFee = totalAmount >= Number(zone.min_order_amount) ? 0 : Number(zone.delivery_fee);
+        const finalAmount = totalAmount + deliveryFee;
+
+        // Create order
+        const orderResult = await client.query(`
+          INSERT INTO orders (
+            user_id, total_amount, discount_amount, delivery_fee, final_amount,
+            payment_method, house_no, street, landmark, address, city, district, state, pincode, phone,
+            payment_status, delivery_slot, status
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+          RETURNING id
+        `, [
+          sub.user_id, totalAmount, basePrice * sub.quantity - totalAmount, deliveryFee, finalAmount,
+          'cod', sub.house_no, sub.street, sub.landmark, sub.address, sub.city, sub.district, sub.state, sub.pincode, sub.phone,
+          'pending', sub.delivery_slot, 'confirmed' // Auto-confirm subscription orders
+        ]);
+
+        const orderId = orderResult.rows[0].id;
+
+        // Add order item
+        await client.query('INSERT INTO order_items (order_id, product_id, quantity, price) VALUES ($1, $2, $3, $4)', [
+          orderId, sub.product_id, sub.quantity, discountedPrice
+        ]);
+
+        // Update stock
+        await client.query('UPDATE products SET stock = stock - $1 WHERE id = $2', [sub.quantity, sub.product_id]);
+
+        // Update next delivery date
+        const nextDate = new Date(sub.next_delivery_date);
+        if (sub.frequency === 'daily') {
+          nextDate.setDate(nextDate.getDate() + 1);
+        } else {
+          nextDate.setDate(nextDate.getDate() + 7);
+        }
+        
+        await client.query('UPDATE subscriptions SET next_delivery_date = $1 WHERE id = $2', [
+          nextDate.toISOString().split('T')[0], sub.id
+        ]);
+
+        // Notify user
+        try {
+          const message = `Hi ${sub.user_name}, your subscription order #${orderId} for ${sub.product_name} has been created! 🌾`;
+          await sendWhatsAppNotification(sub.phone, message);
+        } catch (notifyError) {
+          console.error('Failed to send subscription order notification:', notifyError);
+        }
+
+        processedCount++;
+      } catch (subErr: any) {
+        errors.push(`Subscription #${sub.id}: ${subErr.message}`);
+      }
+    }
+
+    await client.query('COMMIT');
+    res.json({ success: true, processedCount, errors });
+  } catch (e: any) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: 'Failed to process subscriptions', details: e.message });
+  } finally {
+    client.release();
+  }
+});
+
 app.get('/api/user/previous-addresses', authenticate, async (req: any, res) => {
   try {
     const addressesRes = await db.query(`
@@ -2351,6 +2574,22 @@ app.patch('/api/admin/products/bulk-stock', authenticate, isAdmin, async (req, r
   }
 });
 
+app.get('/api/admin/subscriptions', authenticate, isAdmin, async (req, res) => {
+  try {
+    const result = await db.query(`
+      SELECT s.*, p.name as product_name, p.image_url, p.unit, u.name as user_name, u.email as user_email
+      FROM subscriptions s
+      JOIN products p ON s.product_id = p.id
+      JOIN users u ON s.user_id = u.id
+      ORDER BY s.created_at DESC
+    `);
+    res.json(result.rows);
+  } catch (err: any) {
+    logError(err, 'fetch-admin-subscriptions-failed', req);
+    res.status(500).json({ error: 'Failed to fetch subscriptions' });
+  }
+});
+
 app.get('/api/admin/stats', authenticate, isAdmin, async (req, res) => {
   const totalSalesRes = await db.query("SELECT SUM(final_amount) as total FROM orders WHERE status != 'cancelled'");
   const orderCountRes = await db.query('SELECT COUNT(*) as count FROM orders');
@@ -2358,6 +2597,7 @@ app.get('/api/admin/stats', authenticate, isAdmin, async (req, res) => {
   const farmerCountRes = await db.query('SELECT COUNT(*) as count FROM farmers');
   const lowStockRes = await db.query('SELECT COUNT(*) as count FROM products WHERE stock < 10');
   const deliveryBoyCountRes = await db.query("SELECT COUNT(*) as count FROM users WHERE role = 'delivery_boy'");
+  const subscriptionCountRes = await db.query('SELECT COUNT(*) as count FROM subscriptions WHERE is_active = true');
   
   res.json({
     totalSales: parseFloat(totalSalesRes.rows[0].total) || 0,
@@ -2365,7 +2605,8 @@ app.get('/api/admin/stats', authenticate, isAdmin, async (req, res) => {
     userCount: parseInt(userCountRes.rows[0].count),
     farmerCount: parseInt(farmerCountRes.rows[0].count),
     lowStock: parseInt(lowStockRes.rows[0].count),
-    deliveryBoyCount: parseInt(deliveryBoyCountRes.rows[0].count)
+    deliveryBoyCount: parseInt(deliveryBoyCountRes.rows[0].count),
+    subscriptionCount: parseInt(subscriptionCountRes.rows[0].count)
   });
 });
 

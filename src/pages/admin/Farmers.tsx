@@ -254,7 +254,7 @@ export default function AdminFarmers() {
                     src={farmer.image_url} 
                     alt={farmer.name}
                     className="w-full h-full object-cover"
-                    referrerPolicy="no-referrer"
+                    referrerPolicy="strict-origin-when-cross-origin"
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-gray-300">

@@ -80,7 +80,7 @@ export default function MiniCart({ isMobile, onClose }: MiniCartProps) {
         <AnimatePresence initial={false}>
           {items.map((item) => (
             <motion.div 
-              key={item.id}
+              key={item.cartItemId}
               layout
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
@@ -100,14 +100,14 @@ export default function MiniCart({ isMobile, onClose }: MiniCartProps) {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center bg-gray-100/50 dark:bg-slate-800/50 rounded-lg p-0.5 border border-black/5 dark:border-white/5">
                     <button 
-                      onClick={() => updateQuantity(item.id, -1)}
+                      onClick={() => updateQuantity(item.cartItemId, -1)}
                       className="p-0.5 hover:bg-white dark:hover:bg-slate-700 rounded-md transition-all text-gray-400 hover:text-gray-600"
                     >
                       <Minus className="w-2.5 h-2.5" />
                     </button>
                     <span className="w-5 text-center text-[10px] font-bold text-gray-900 dark:text-white">{item.quantity}</span>
                     <button 
-                      onClick={() => updateQuantity(item.id, 1)}
+                      onClick={() => updateQuantity(item.cartItemId, 1)}
                       className="p-0.5 hover:bg-white dark:hover:bg-slate-700 rounded-md transition-all text-[#D4820A]"
                     >
                       <Plus className="w-2.5 h-2.5" />
@@ -117,7 +117,7 @@ export default function MiniCart({ isMobile, onClose }: MiniCartProps) {
                 </div>
               </div>
               <button 
-                onClick={() => removeItem(item.id)}
+                onClick={() => removeItem(item.cartItemId)}
                 className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-all opacity-0 group-hover:opacity-100"
               >
                 <Trash2 className="w-4 h-4" />

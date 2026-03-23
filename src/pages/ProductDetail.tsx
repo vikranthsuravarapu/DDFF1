@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Star, MapPin, ShieldCheck, Truck, ShoppingCart, Plus, Minus, Sparkles, Loader2, Languages, BookOpen, MessageSquareText, X, User, Save, Package, Bell, Check } from 'lucide-react';
+import { ArrowLeft, Star, MapPin, ShieldCheck, Truck, ShoppingCart, Plus, Minus, Sparkles, Loader2, Languages, BookOpen, MessageSquareText, X, User, Save, Package, Bell, Check, Calendar, Repeat, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { useCart } from '../contexts/CartContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -25,7 +25,7 @@ export default function ProductDetail() {
     }
   }, [user, navigate]);
 
-  const cartItem = items.find(i => i.id === Number(id));
+  const cartItem = items.find(i => i.id === Number(id) && i.price === displayPrice);
   const quantityInCart = cartItem ? cartItem.quantity : 0;
   const isOutOfStock = product?.stock <= 0;
 
@@ -50,6 +50,59 @@ export default function ProductDetail() {
   const [hasAlert, setHasAlert] = useState(false);
   const [alertLoading, setAlertLoading] = useState(false);
   const [timeLeft, setTimeLeft] = useState<{h: number, m: number, s: number} | null>(null);
+  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
+  const [subscriptionFrequency, setSubscriptionFrequency] = useState<'daily' | 'weekly'>('daily');
+  const [subscriptionSlot, setSubscriptionSlot] = useState('Morning (8am – 12pm)');
+  const [subscriptionAddress, setSubscriptionAddress] = useState<number | null>(null);
+  const [addresses, setAddresses] = useState<any[]>([]);
+  const [isSubscribing, setIsSubscribing] = useState(false);
+
+  useEffect(() => {
+    if (token) {
+      apiFetch('/api/user/saved-addresses')
+        .then(res => res.json())
+        .then(data => {
+          setAddresses(data);
+          const defaultAddr = data.find((a: any) => a.is_default);
+          if (defaultAddr) setSubscriptionAddress(defaultAddr.id);
+          else if (data.length > 0) setSubscriptionAddress(data[0].id);
+        });
+    }
+  }, [token]);
+
+  const handleSubscribe = async () => {
+    if (!subscriptionAddress) {
+      setNotification(t('select_address_subscription'));
+      return;
+    }
+
+    setIsSubscribing(true);
+    try {
+      const res = await apiFetch('/api/subscriptions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          product_id: product.id,
+          quantity,
+          frequency: subscriptionFrequency,
+          delivery_slot: subscriptionSlot,
+          address_id: subscriptionAddress
+        })
+      });
+
+      if (res.ok) {
+        setNotification(t('subscription_created_success'));
+        setShowSubscriptionModal(false);
+      } else {
+        const data = await res.json();
+        setNotification(data.error || t('failed_create_subscription'));
+      }
+    } catch (err) {
+      setNotification(t('failed_create_subscription'));
+    } finally {
+      setIsSubscribing(false);
+    }
+  };
 
   const isActiveSale = product?.sale_price !== null && product?.sale_ends_at && new Date(product.sale_ends_at) > new Date();
   const displayPrice = isActiveSale ? product.sale_price : product?.price;
@@ -222,9 +275,9 @@ export default function ProductDetail() {
   const handleAddToCart = () => {
     if (isOutOfStock) return;
     
-    if (quantityInCart > 0) {
+    if (quantityInCart > 0 && cartItem) {
       const delta = quantity - quantityInCart;
-      updateQuantity(product.id, delta);
+      updateQuantity(cartItem.cartItemId, delta);
       setNotification('Cart updated!');
     } else {
       addItem({ ...product, price: displayPrice }, quantity);
@@ -246,7 +299,7 @@ export default function ProductDetail() {
             src={product.image_url || `https://picsum.photos/seed/${product.id}/800/800`} 
             alt={product.name}
             className="w-full h-full object-cover"
-            referrerPolicy="no-referrer"
+            referrerPolicy="strict-origin-when-cross-origin"
             onError={(e) => {
               const target = e.target as HTMLImageElement;
               target.src = `https://picsum.photos/seed/${product.id}/800/800`;
@@ -422,6 +475,28 @@ export default function ProductDetail() {
                 </>
               )}
             </button>
+
+            {!isOutOfStock && (
+              <div className="space-y-3">
+                <button 
+                  onClick={() => {
+                    if (!isAuthenticated) {
+                      navigate('/login', { state: { from: `/products/${id}` } });
+                      return;
+                    }
+                    setShowSubscriptionModal(true);
+                  }}
+                  className="w-full bg-white dark:bg-slate-800 border-2 border-[#D4820A] text-[#D4820A] py-4 rounded-2xl font-bold flex items-center justify-center space-x-2 hover:bg-[#D4820A]/5 transition-all shadow-sm"
+                >
+                  <Repeat className="w-5 h-5" />
+                  <span>{t('subscribe_save')}</span>
+                </button>
+                <div className="flex items-center justify-center space-x-2 text-xs font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 py-2 rounded-xl">
+                  <Sparkles className="w-3 h-3" />
+                  <span>{t('subscriber_incentive')}</span>
+                </div>
+              </div>
+            )}
 
             {isOutOfStock && hasAlert && (
               <button 
@@ -637,6 +712,96 @@ export default function ProductDetail() {
             <ShoppingCart className="w-5 h-5" />
             <span>{quantityInCart > 0 ? t('update_cart') : t('add_to_cart')}</span>
           </button>
+        </div>
+      )}
+
+      {/* Subscription Modal */}
+      {showSubscriptionModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl w-full max-w-md p-8 space-y-6 animate-in zoom-in-95 transition-colors">
+            <div className="flex justify-between items-center">
+              <div className="flex items-center space-x-3">
+                <div className="bg-[#D4820A]/10 p-2 rounded-xl text-[#D4820A]">
+                  <Repeat className="w-6 h-6" />
+                </div>
+                <h3 className="text-2xl font-bold text-gray-900 dark:text-slate-100">{t('setup_subscription')}</h3>
+              </div>
+              <button onClick={() => setShowSubscriptionModal(false)} className="p-2 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-full transition-colors">
+                <X className="w-6 h-6 text-gray-500" />
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              <div className="flex items-center space-x-4 p-4 bg-gray-50 dark:bg-slate-900/50 rounded-2xl border border-black/5 dark:border-white/5">
+                <img src={product.image_url} alt={product.name} className="w-16 h-16 rounded-xl object-cover" />
+                <div>
+                  <h4 className="font-bold text-gray-900 dark:text-white">{product.name}</h4>
+                  <p className="text-sm text-gray-500 dark:text-slate-400">{quantity} units • {formatCurrency(product.price * quantity)}</p>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <label className="block text-sm font-bold text-gray-700 dark:text-white">{t('frequency')}</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button 
+                    onClick={() => setSubscriptionFrequency('daily')}
+                    className={`p-4 rounded-2xl border-2 font-bold transition-all ${subscriptionFrequency === 'daily' ? 'border-[#D4820A] bg-[#D4820A]/5 text-[#D4820A]' : 'border-black/5 dark:border-white/10 text-gray-500'}`}
+                  >
+                    {t('daily')}
+                  </button>
+                  <button 
+                    onClick={() => setSubscriptionFrequency('weekly')}
+                    className={`p-4 rounded-2xl border-2 font-bold transition-all ${subscriptionFrequency === 'weekly' ? 'border-[#D4820A] bg-[#D4820A]/5 text-[#D4820A]' : 'border-black/5 dark:border-white/10 text-gray-500'}`}
+                  >
+                    {t('weekly')}
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <label className="block text-sm font-bold text-gray-700 dark:text-white">{t('delivery_slot')}</label>
+                <select 
+                  value={subscriptionSlot}
+                  onChange={(e) => setSubscriptionSlot(e.target.value)}
+                  className="w-full p-4 rounded-2xl border border-black/10 dark:border-white/10 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-[#D4820A]/20 transition-colors"
+                >
+                  <option value="Morning (8am – 12pm)">Morning (8am – 12pm)</option>
+                  <option value="Evening (4pm – 8pm)">Evening (4pm – 8pm)</option>
+                </select>
+              </div>
+
+              <div className="space-y-3">
+                <label className="block text-sm font-bold text-gray-700 dark:text-white">{t('delivery_address')}</label>
+                {addresses.length > 0 ? (
+                  <select 
+                    value={subscriptionAddress || ''}
+                    onChange={(e) => setSubscriptionAddress(Number(e.target.value))}
+                    className="w-full p-4 rounded-2xl border border-black/10 dark:border-white/10 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-[#D4820A]/20 transition-colors"
+                  >
+                    {addresses.map((addr: any) => (
+                      <option key={addr.id} value={addr.id}>
+                        {addr.label}: {addr.house_no}, {addr.street}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className="p-4 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-2xl text-sm font-bold flex items-center space-x-2">
+                    <AlertCircle className="w-4 h-4" />
+                    <span>{t('no_addresses_found')}</span>
+                  </div>
+                )}
+              </div>
+
+              <button 
+                onClick={handleSubscribe}
+                disabled={isSubscribing || !subscriptionAddress}
+                className="w-full bg-[#D4820A] text-white py-4 rounded-2xl font-bold flex items-center justify-center space-x-2 hover:bg-[#B87008] transition-all shadow-lg shadow-[#D4820A]/20 disabled:opacity-50"
+              >
+                {isSubscribing ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle2 className="w-5 h-5" />}
+                <span>{t('confirm_subscription')}</span>
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -105,8 +105,11 @@ export default function OrderDetails() {
         const currentProduct = allProducts.find((p: any) => p.id === item.product_id);
         
         if (currentProduct && currentProduct.stock > 0) {
+          const isActiveSale = currentProduct.sale_price !== null && currentProduct.sale_ends_at && new Date(currentProduct.sale_ends_at) > new Date();
+          const displayPrice = isActiveSale ? currentProduct.sale_price : currentProduct.price;
+          
           const qtyToAdd = Math.min(item.quantity, currentProduct.stock);
-          addItem(currentProduct, qtyToAdd);
+          addItem({ ...currentProduct, price: displayPrice }, qtyToAdd);
           addedCount++;
         } else {
           warnings.push(`⚠️ ${item.name} ${t('unavailable_warning')}`);

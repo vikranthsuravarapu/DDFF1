@@ -189,7 +189,7 @@ export default function Offers() {
                           src={offer.image_url || 'https://picsum.photos/seed/product/100/100'} 
                           alt={offer.product_name}
                           className="w-full h-full object-cover"
-                          referrerPolicy="no-referrer"
+                          referrerPolicy="strict-origin-when-cross-origin"
                         />
                       ) : (
                         <ShoppingBag className="text-gray-400" size={20} />

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { BarChart3, Package, Users, AlertTriangle, TrendingUp, ShoppingBag, ChevronRight, Sparkles, Loader2, X, UserPlus, MapPin, Bike, Tag, History, Gift } from 'lucide-react';
+import { BarChart3, Package, Users, AlertTriangle, TrendingUp, ShoppingBag, ChevronRight, Sparkles, Loader2, X, UserPlus, MapPin, Bike, Tag, History, Gift, RefreshCw } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { analyzeAdminData } from '../../services/geminiService';
@@ -12,6 +12,7 @@ export default function AdminDashboard() {
   const [stats, setStats] = useState<any>(null);
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isProcessingSubscriptions, setIsProcessingSubscriptions] = useState(false);
 
   useEffect(() => {
     apiFetch('/api/admin/stats')
@@ -27,6 +28,30 @@ export default function AdminDashboard() {
     setIsAnalyzing(false);
   };
 
+  const handleProcessSubscriptions = async () => {
+    if (!confirm('Are you sure you want to process all active subscriptions for today? This will create new orders.')) return;
+    
+    setIsProcessingSubscriptions(true);
+    try {
+      const res = await apiFetch('/api/subscriptions/process', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        alert(`Successfully processed subscriptions! ${data.processedCount} orders created.`);
+        // Refresh stats
+        apiFetch('/api/admin/stats')
+          .then(res => res.json())
+          .then(setStats);
+      } else {
+        alert(data.error || 'Failed to process subscriptions.');
+      }
+    } catch (err) {
+      console.error('Failed to process subscriptions:', err);
+      alert('An error occurred while processing subscriptions.');
+    } finally {
+      setIsProcessingSubscriptions(false);
+    }
+  };
+
   if (!stats) return <div className="animate-pulse h-96 bg-white dark:bg-slate-800 rounded-3xl transition-colors" />;
 
   const cards = [
@@ -35,6 +60,7 @@ export default function AdminDashboard() {
     { title: 'Customers', value: stats.userCount, icon: Users, color: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-50 dark:bg-purple-900/20', emoji: '👥', path: '/admin/users' },
     { title: 'Delivery Staff', value: stats.deliveryBoyCount || 0, icon: Bike, color: 'text-orange-600 dark:text-orange-400', bg: 'bg-orange-50 dark:bg-orange-900/20', emoji: '🛵', path: '/admin/delivery-staff' },
     { title: 'Farmers', value: stats.farmerCount || 0, icon: UserPlus, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-900/20', emoji: '👨‍🌾', path: '/admin/farmers' },
+    { title: 'Subscriptions', value: stats.subscriptionCount || 0, icon: RefreshCw, color: 'text-indigo-600 dark:text-indigo-400', bg: 'bg-indigo-50 dark:bg-indigo-900/20', emoji: '🔄', path: '/admin/subscriptions' },
     { title: 'Low Stock', value: stats.lowStock, icon: AlertTriangle, color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-900/20', emoji: '⚠️', path: '/admin/products?filter=low-stock' },
   ];
 
@@ -197,6 +223,20 @@ export default function AdminDashboard() {
               <p className="font-bold text-gray-900 dark:text-slate-100 relative z-10">Manage Bundles</p>
               <p className="text-xs text-gray-500 dark:text-slate-400 relative z-10">Create combo offers</p>
             </Link>
+            <button 
+              onClick={handleProcessSubscriptions}
+              disabled={isProcessingSubscriptions}
+              className="p-6 rounded-2xl border border-black/10 dark:border-white/10 hover:border-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/10 transition-all text-left space-y-2 group relative overflow-hidden col-span-2"
+            >
+              <div className="absolute -right-2 -top-2 opacity-5 text-6xl group-hover:scale-110 transition-transform">🔄</div>
+              {isProcessingSubscriptions ? (
+                <Loader2 className="w-6 h-6 text-indigo-600 animate-spin relative z-10" />
+              ) : (
+                <RefreshCw className="w-6 h-6 text-indigo-600 group-hover:scale-110 transition-transform relative z-10" />
+              )}
+              <p className="font-bold text-gray-900 dark:text-slate-100 relative z-10">Process Today's Subscriptions</p>
+              <p className="text-xs text-gray-500 dark:text-slate-400 relative z-10">Generate orders for all active subscriptions due today</p>
+            </button>
           </div>
         </div>
       </div>

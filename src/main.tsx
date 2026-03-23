@@ -18,7 +18,7 @@ if ('serviceWorker' in navigator) {
         if (newWorker) {
           newWorker.onstatechange = () => {
             if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-              window.location.reload();
+              // window.location.reload();
             }
           };
         }

@@ -1,6 +1,7 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 
 interface CartItem {
+  cartItemId: string;
   id: number;
   name: string;
   price: number;
@@ -12,9 +13,9 @@ interface CartItem {
 
 interface CartContextType {
   items: CartItem[];
-  addItem: (product: any, quantity?: number) => void;
-  removeItem: (id: number) => void;
-  updateQuantity: (id: number, delta: number) => void;
+  addItem: (product: any, quantity?: number, priceOverride?: number) => void;
+  removeItem: (cartItemId: string) => void;
+  updateQuantity: (cartItemId: string, delta: number) => void;
   clearCart: () => void;
   total: number;
   itemCount: number;
@@ -26,7 +27,7 @@ interface CartContextType {
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
 
-export function CartProvider({ children }: { children: React.ReactNode }) {
+export function CartProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<CartItem[]>([]);
   const [notification, setNotification] = useState<string | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -47,15 +48,17 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem('cart', JSON.stringify(items));
   }, [items]);
 
-  const addItem = (product: any, qty: number = 1) => {
+  const addItem = (product: any, qty: number = 1, priceOverride?: number) => {
+    const price = priceOverride !== undefined ? priceOverride : product.price;
+    
     setItems(prev => {
-      const existing = prev.find(i => i.id === product.id);
+      const existing = prev.find(i => i.id === product.id && i.price === price);
       if (existing) {
         if (existing.quantity + qty > product.stock) {
           setNotification(`This product is only available ${product.stock} units`);
           return prev;
         }
-        return prev.map(i => i.id === product.id ? { ...i, quantity: i.quantity + qty } : i);
+        return prev.map(i => (i.id === product.id && i.price === price) ? { ...i, quantity: i.quantity + qty } : i);
       }
       if (product.stock <= 0) {
         setNotification('This product is out of stock.');
@@ -65,17 +68,23 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         setNotification(`This product is only available ${product.stock} units`);
         return prev;
       }
-      return [...prev, { ...product, quantity: qty, stock: product.stock }];
+      return [...prev, { 
+        ...product, 
+        price,
+        quantity: qty, 
+        stock: product.stock,
+        cartItemId: `${product.id}-${price}-${Date.now()}`
+      }];
     });
   };
 
-  const removeItem = (id: number) => {
-    setItems(prev => prev.filter(i => i.id !== id));
+  const removeItem = (cartItemId: string) => {
+    setItems(prev => prev.filter(i => i.cartItemId !== cartItemId));
   };
 
-  const updateQuantity = (id: number, delta: number) => {
+  const updateQuantity = (cartItemId: string, delta: number) => {
     setItems(prev => prev.map(i => {
-      if (i.id === id) {
+      if (i.cartItemId === cartItemId) {
         const newQty = i.quantity + delta;
         
         if (newQty > i.stock && delta > 0) {

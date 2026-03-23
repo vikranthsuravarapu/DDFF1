@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
 
 interface User {
   id: number;
@@ -29,7 +29,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
+export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState<string | null>(null);
@@ -39,6 +39,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isCheckingDelivery, setIsCheckingDelivery] = useState(false);
 
   useEffect(() => {
+    console.log('[AuthContext] Mounted');
     const controller = new AbortController();
     let isMounted = true;
 
@@ -81,6 +82,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [userLocation]);
 
   useEffect(() => {
+    let isMounted = true;
     const savedToken = localStorage.getItem('token');
     const savedRefreshToken = localStorage.getItem('refreshToken');
     const savedUser = localStorage.getItem('user');
@@ -108,7 +110,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUserLocationState(savedLocation);
     } else {
       // If no location, show modal even for guests
-      setIsLocationModalOpen(true);
+      console.log('[AuthContext] No location found, opening modal');
+      // Use a small delay to ensure other state is settled
+      setTimeout(() => {
+        if (isMounted) setIsLocationModalOpen(true);
+      }, 100);
     }
 
     // Listen for OAuth success from popup
@@ -119,7 +125,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     };
     window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
+    return () => {
+      isMounted = false;
+      window.removeEventListener('message', handleMessage);
+    };
   }, []);
 
   // Proactive token refresh
@@ -157,7 +166,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const refreshPromise = React.useRef<Promise<string | null> | null>(null);
+  const refreshPromise = useRef<Promise<string | null> | null>(null);
 
   const apiFetch = async (url: string, options: RequestInit = {}): Promise<Response> => {
     const getHeaders = (t: string | null) => ({
@@ -186,13 +195,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 return newToken;
               } else {
                 logout();
-                window.location.href = '/login';
                 return null;
               }
             } catch (err) {
               console.error('Token refresh failed:', err);
               logout();
-              window.location.href = '/login';
               return null;
             } finally {
               refreshPromise.current = null;
@@ -228,12 +235,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const setUserLocation = (location: string) => {
+    console.log('[AuthContext] Setting user location:', location);
     setUserLocationState(location);
     localStorage.setItem('userLocation', location);
     setIsLocationModalOpen(false);
   };
 
   const logout = async () => {
+    console.log('[AuthContext] Logging out');
     if (token && refreshToken) {
       try {
         await fetch('/api/auth/logout', {
